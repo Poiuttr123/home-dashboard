@@ -5,7 +5,7 @@
  * panel (wedding countdown iframe by default, or an uploaded image).
  */
 
-const CARD_VERSION = "1.0.4";
+const CARD_VERSION = "1.0.5";
 
 console.info(
   `%c HOME-DISPLAY-CARD %c v${CARD_VERSION} `,
@@ -751,7 +751,9 @@ class HomeDisplayCard extends HTMLElement {
             repeat(2, minmax(0,1fr));
 
           grid-auto-rows:
-            minmax(0,1fr);
+            min-content;
+
+          align-content: start;
 
           column-gap: 22px;
           row-gap: 5px;

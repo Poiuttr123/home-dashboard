@@ -60,3 +60,12 @@ proper Lovelace custom card:
   divider with real spacing, and the Daily Information grid on the card
   itself has extra row spacing/padding so names and values aren't as
   cramped.
+
+## v1.0.5
+
+- Fixes the Daily Information grid spreading rows far apart when there
+  are only a few sensors. `grid-auto-rows: minmax(0,1fr)` made every row
+  stretch to an equal share of the card's full height; with 2-3 sensors
+  in a tall card that meant huge gaps between rows. Rows now size to their
+  content (`min-content`) and pack toward the top (`align-content: start`),
+  so they sit close together regardless of how much of the card they fill.
