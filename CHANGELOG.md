@@ -48,3 +48,15 @@ proper Lovelace custom card:
   fell back to the raw YAML editor on every single edit — every button,
   toggle, and dropdown in the visual editor. Now the full original config
   (type included) is preserved and merged with each update.
+
+## v1.0.4
+
+- Each Daily Information sensor row gets a **Value** dropdown, populated
+  from that entity's live attributes, to read an attribute (e.g.
+  `Alos_Simple`) instead of always using the entity's state. Selecting a
+  different entity resets the attribute choice, since attribute names are
+  entity-specific.
+- More breathing room: sensor rows in the editor are now separated by a
+  divider with real spacing, and the Daily Information grid on the card
+  itself has extra row spacing/padding so names and values aren't as
+  cramped.

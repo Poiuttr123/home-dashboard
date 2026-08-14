@@ -63,11 +63,14 @@ given. Each entry is either an entity ID string, or an object:
 sensors:
   - sensor.example_one
   - entity: sensor.example_two
-    name: Custom label   # optional, overrides the friendly name
+    name: Custom label       # optional, overrides the friendly name
+    attribute: Alos_Simple   # optional, reads this attribute instead of state
 ```
 
 Add and remove rows for this list from the card's visual editor, or edit the
-YAML directly.
+YAML directly. Each row also has a **Value** dropdown, populated from the
+selected entity's current attributes — pick one to display that attribute
+instead of the entity's state (defaults to "State").
 
 If `sensors` is empty, the card falls back to auto-detecting entities that
 have a `sheet_name` attribute (e.g. sensors created from a Google Sheet),

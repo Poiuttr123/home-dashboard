@@ -5,7 +5,7 @@
  * panel (wedding countdown iframe by default, or an uploaded image).
  */
 
-const CARD_VERSION = "1.0.3";
+const CARD_VERSION = "1.0.4";
 
 console.info(
   `%c HOME-DISPLAY-CARD %c v${CARD_VERSION} `,
@@ -122,10 +122,14 @@ function escapeHtml(value) {
 
 function normalizeSensorEntry(entry) {
   if (typeof entry === "string") {
-    return entry ? { entity: entry, name: "" } : null;
+    return entry ? { entity: entry, name: "", attribute: "" } : null;
   }
   if (entry && typeof entry === "object" && entry.entity) {
-    return { entity: entry.entity, name: entry.name || "" };
+    return {
+      entity: entry.entity,
+      name: entry.name || "",
+      attribute: entry.attribute || "",
+    };
   }
   return null;
 }
@@ -750,6 +754,7 @@ class HomeDisplayCard extends HTMLElement {
             minmax(0,1fr);
 
           column-gap: 22px;
+          row-gap: 5px;
         }
 
         .daily-row {
@@ -766,7 +771,7 @@ class HomeDisplayCard extends HTMLElement {
 
           align-items: center;
 
-          padding: 2px 1px;
+          padding: 5px 1px;
 
           border-bottom:
             1px solid rgba(255,255,255,.06);
@@ -1653,12 +1658,12 @@ class HomeDisplayCard extends HTMLElement {
   buildConfiguredSensorRows(configuredSensors) {
     return configuredSensors
       .filter(({ entity }) => entity)
-      .map(({ entity, name }) => {
+      .map(({ entity, name, attribute }) => {
         const state = this.getEntity(entity);
-        const value = this.getState(entity);
+        const value = attribute ? this.getAttr(entity, attribute) : this.getState(entity);
         const label = name || state?.attributes?.friendly_name || entity;
 
-        return { key: entity, name: label, value, extra: "" };
+        return { key: `${entity}:${attribute || ""}`, name: label, value, extra: "" };
       });
   }
 
@@ -1823,18 +1828,29 @@ class HomeDisplayCardEditor extends HTMLElement {
 
         .sensor-row {
           display: flex;
-          align-items: center;
+          flex-wrap: wrap;
+          align-items: flex-end;
           gap: 8px;
-          margin-bottom: 8px;
+          margin-bottom: 18px;
+          padding-bottom: 14px;
+          border-bottom: 1px solid var(--divider-color, #e0e0e0);
+        }
+
+        .sensor-row:last-child {
+          border-bottom: none;
         }
 
         .sensor-row .field {
-          flex: 1;
+          flex: 1 1 160px;
           margin-bottom: 0;
         }
 
+        .sensor-row .attribute-field {
+          flex: 1 1 150px;
+        }
+
         .sensor-row .name-override {
-          flex: 1;
+          flex: 1 1 160px;
           box-sizing: border-box;
           padding: 8px;
           border-radius: 4px;
@@ -2012,7 +2028,7 @@ class HomeDisplayCardEditor extends HTMLElement {
 
     addButton.addEventListener("click", () => {
       this._updateConfig((cfg) => {
-        cfg.sensors.push({ entity: "", name: "" });
+        cfg.sensors.push({ entity: "", name: "", attribute: "" });
       });
       this._render();
     });
@@ -2031,10 +2047,15 @@ class HomeDisplayCardEditor extends HTMLElement {
       value: sensorEntry.entity,
       onChange: (value) => {
         this._updateConfig((cfg) => {
-          cfg.sensors[index] = { ...cfg.sensors[index], entity: value };
+          // A new entity's attributes are different, so any previously
+          // selected attribute name is no longer meaningful.
+          cfg.sensors[index] = { ...cfg.sensors[index], entity: value, attribute: "" };
         });
+        this._render();
       },
     });
+
+    const attributeField = this._buildAttributeField(sensorEntry, index);
 
     const nameInput = document.createElement("input");
     nameInput.type = "text";
@@ -2061,9 +2082,61 @@ class HomeDisplayCardEditor extends HTMLElement {
       this._render();
     });
 
-    row.append(picker, nameInput, removeButton);
+    row.append(picker, attributeField, nameInput, removeButton);
 
     return row;
+  }
+
+  _buildAttributeField(sensorEntry, index) {
+    const wrap = document.createElement("div");
+    wrap.className = "field attribute-field";
+
+    const label = document.createElement("label");
+    label.textContent = "Value";
+    wrap.appendChild(label);
+
+    const select = document.createElement("select");
+
+    const stateOption = document.createElement("option");
+    stateOption.value = "";
+    stateOption.textContent = "State (default)";
+    select.appendChild(stateOption);
+
+    const entityState = sensorEntry.entity
+      ? this._hass?.states?.[sensorEntry.entity]
+      : undefined;
+    const attributeKeys = entityState ? Object.keys(entityState.attributes || {}) : [];
+
+    for (const key of attributeKeys) {
+      const option = document.createElement("option");
+      option.value = key;
+      option.textContent = key;
+      select.appendChild(option);
+    }
+
+    // Keep a previously-saved attribute selectable even if it isn't in the
+    // live entity's attribute list right now (entity not loaded yet, etc.)
+    // so switching modes never silently discards it.
+    if (sensorEntry.attribute && !attributeKeys.includes(sensorEntry.attribute)) {
+      const option = document.createElement("option");
+      option.value = sensorEntry.attribute;
+      option.textContent = `${sensorEntry.attribute} (not currently available)`;
+      select.appendChild(option);
+    }
+
+    select.value = sensorEntry.attribute || "";
+    select.disabled = !sensorEntry.entity;
+    select.title = select.disabled ? "Pick a sensor first" : "";
+
+    select.addEventListener("change", () => {
+      this._updateConfig((cfg) => {
+        cfg.sensors[index] = { ...cfg.sensors[index], attribute: select.value };
+      });
+    });
+
+    wrap.appendChild(select);
+
+    return wrap;
   }
 
   _applyHass() {
