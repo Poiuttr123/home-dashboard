@@ -5,7 +5,7 @@
  * panel (wedding countdown iframe by default, or an uploaded image).
  */
 
-const CARD_VERSION = "1.0.2";
+const CARD_VERSION = "1.0.3";
 
 console.info(
   `%c HOME-DISPLAY-CARD %c v${CARD_VERSION} `,
@@ -1707,6 +1707,15 @@ class HomeDisplayCardEditor extends HTMLElement {
   setConfig(config) {
     const normalized = normalizeConfig(config);
 
+    // Home Assistant's card-editor dialog expects every config-changed event
+    // to carry the FULL card config, "type" included. We only manage
+    // entities/sensors/image_panel ourselves, so anything else on the
+    // incoming config (type, and any keys added by other features, like
+    // card-mod or grid_options) is kept in _rawConfig and merged back in on
+    // every update — dropping "type" here is what was sending Home
+    // Assistant into YAML fallback mode on every edit.
+    this._rawConfig = { type: "custom:home-display-card", ...(config || {}) };
+
     if (this._config && JSON.stringify(normalized) === JSON.stringify(this._config)) {
       this._config = normalized;
       return;
@@ -1732,15 +1741,18 @@ class HomeDisplayCardEditor extends HTMLElement {
 
     this._config = next;
 
+    const fullConfig = {
+      ...this._rawConfig,
+      entities: next.entities,
+      sensors: next.sensors,
+      image_panel: next.image_panel,
+    };
+
+    this._rawConfig = fullConfig;
+
     this.dispatchEvent(
       new CustomEvent("config-changed", {
-        detail: {
-          config: {
-            entities: next.entities,
-            sensors: next.sensors,
-            image_panel: next.image_panel,
-          },
-        },
+        detail: { config: fullConfig },
         bubbles: true,
         composed: true,
       })

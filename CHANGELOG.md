@@ -37,3 +37,14 @@ proper Lovelace custom card:
   sections now build first (so they're visible without scrolling past the
   entity pickers), each section is visually boxed, and a failure building
   one section no longer silently prevents the others from rendering.
+
+## v1.0.3
+
+- **Fixes the real bug** behind "clicking Add Sensor / selecting Custom code
+  kicks me into the YAML editor": the editor's `config-changed` events were
+  sending Home Assistant a config object missing the `type` key. Home
+  Assistant's card-editor dialog treats `config-changed` payloads as the
+  complete card config, so a config without `type` looked broken and it
+  fell back to the raw YAML editor on every single edit — every button,
+  toggle, and dropdown in the visual editor. Now the full original config
+  (type included) is preserved and merged with each update.
