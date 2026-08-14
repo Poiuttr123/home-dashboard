@@ -5,6 +5,14 @@
  * panel (wedding countdown iframe by default, or an uploaded image).
  */
 
+const CARD_VERSION = "1.0.1";
+
+console.info(
+  `%c HOME-DISPLAY-CARD %c v${CARD_VERSION} `,
+  "color: white; background: #039be5; font-weight: 700; border-radius: 3px 0 0 3px; padding: 2px 0 2px 6px;",
+  "color: #039be5; background: white; font-weight: 700; border-radius: 0 3px 3px 0; padding: 2px 6px 2px 0;"
+);
+
 const DEFAULT_ENTITIES = {
   weather: "weather.home",
   jewish_date: "sensor.yidcal_full_display",
