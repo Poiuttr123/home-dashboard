@@ -1,8 +1,9 @@
 # Home Display Card
 
 A full dashboard-style Lovelace card for Home Assistant: clock, weather, zmanim,
-special times, a configurable "Daily Information" sensor list, and a wedding
-countdown iframe.
+special times, a configurable "Daily Information" sensor list, and a toggleable
+bottom-right panel (wedding countdown iframe by default, or your own uploaded
+image).
 
 This is a **frontend card** (plain JavaScript, no backend integration), installed
 through HACS as a **Plugin**.
@@ -41,6 +42,9 @@ sensors:
   - entity: sensor.example_one
   - entity: sensor.example_two
     name: Custom label
+image_panel:
+  enabled: true
+  image: ""
 ```
 
 ### `entities`
@@ -67,6 +71,31 @@ If `sensors` is empty, the card falls back to auto-detecting entities that
 have a `sheet_name` attribute (e.g. sensors created from a Google Sheet),
 sorted by their `row_index` attribute — this preserves the card's original
 behavior.
+
+### `image_panel`
+
+Controls the bottom-right panel:
+
+- `enabled` — `true`/`false`. When `false`, the panel is hidden and the
+  Daily Information card expands to fill the row.
+- `image` — a URL to display as a static image instead of the wedding
+  countdown iframe. Leave empty to keep the iframe.
+
+In the visual editor, use the **Bottom Right Panel** section to toggle
+visibility and upload an image file directly — the file is uploaded to Home
+Assistant's built-in Image Upload integration (`/api/image/upload`) and the
+resulting `/api/image/serve/<id>/original` URL is stored in `image`. Uploading
+a new image or clicking **Remove uploaded image** reverts to the wedding
+countdown iframe.
+
+## Updating
+
+Because this is a HACS **Plugin** resource, browsers can cache the old
+`home-display-card.js` aggressively. After updating through HACS, do a hard
+refresh (Ctrl/Cmd+Shift+R) or bump the resource version query string under
+**Settings → Dashboards → Resources** (e.g. `...home-display-card.js?v=2`) so
+the new visual editor (including sensor add/remove and the image panel
+controls) actually loads.
 
 ## Development
 

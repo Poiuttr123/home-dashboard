@@ -1,7 +1,8 @@
 /**
  * Home Display Card
  * A full dashboard-style Lovelace card: clock, weather, zmanim, special times,
- * a configurable "Daily Information" sensor list, and a wedding countdown iframe.
+ * a configurable "Daily Information" sensor list, and a toggleable bottom-right
+ * panel (wedding countdown iframe by default, or an uploaded image).
  */
 
 const DEFAULT_ENTITIES = {
@@ -33,6 +34,11 @@ const SPECIAL_ROWS = [
   { key: "erev", elementId: "erev", attribute: "Zman_Erev_Simple" },
   { key: "motzi", elementId: "motzi", attribute: "Zman_Motzi_Simple" },
 ];
+
+const DEFAULT_IMAGE_PANEL = {
+  enabled: true,
+  image: "",
+};
 
 export const ENTITY_SECTIONS = [
   {
@@ -89,7 +95,8 @@ export function normalizeConfig(config) {
   const sensors = Array.isArray(source.sensors)
     ? source.sensors.map(normalizeSensorEntry).filter(Boolean)
     : [];
-  return { entities, sensors };
+  const image_panel = { ...DEFAULT_IMAGE_PANEL, ...(source.image_panel || {}) };
+  return { entities, sensors, image_panel };
 }
 
 class HomeDisplayCard extends HTMLElement {
@@ -111,6 +118,7 @@ class HomeDisplayCard extends HTMLElement {
       type: "custom:home-display-card",
       entities: { ...DEFAULT_ENTITIES },
       sensors: [],
+      image_panel: { ...DEFAULT_IMAGE_PANEL },
     };
   }
 
@@ -744,10 +752,10 @@ class HomeDisplayCard extends HTMLElement {
 
 
         /* ======================================================
-           WEDDING
+           IMAGE PANEL (bottom right)
            ====================================================== */
 
-        .wedding-card {
+        .image-panel {
           height: 100%;
 
           padding: 6px;
@@ -755,7 +763,8 @@ class HomeDisplayCard extends HTMLElement {
           min-height: 0;
         }
 
-        .wedding-card iframe {
+        .image-panel iframe,
+        .image-panel img {
           width: 100%;
           height: 100%;
 
@@ -768,6 +777,14 @@ class HomeDisplayCard extends HTMLElement {
           display: block;
 
           background: #eee4d5;
+        }
+
+        .image-panel img {
+          object-fit: cover;
+        }
+
+        .middle.single-column {
+          grid-template-columns: minmax(0, 1fr);
         }
 
 
@@ -1152,11 +1169,14 @@ class HomeDisplayCard extends HTMLElement {
             </section>
 
 
-            <section class="card wedding-card">
+            <section class="card image-panel" id="imagePanel">
+
+              <img id="imagePanelImg" alt="" />
 
               <iframe
+                id="imagePanelIframe"
                 src="/local/wedding-countdown-new.html"
-                title="Wedding Countdown">
+                title="Bottom Right Panel">
               </iframe>
 
             </section>
@@ -1415,6 +1435,48 @@ class HomeDisplayCard extends HTMLElement {
        ========================================================== */
 
     this.renderSheetData();
+
+
+    /* ==========================================================
+       IMAGE PANEL
+       ========================================================== */
+
+    this.updateImagePanel();
+  }
+
+
+  updateImagePanel() {
+
+    const panelConfig = this._config.image_panel;
+
+    const middle = this.shadowRoot.querySelector(".middle");
+    const panel = this.shadowRoot.getElementById("imagePanel");
+    const img = this.shadowRoot.getElementById("imagePanelImg");
+    const iframe = this.shadowRoot.getElementById("imagePanelIframe");
+
+    if (!panel || !middle || !img || !iframe) {
+      return;
+    }
+
+    if (!panelConfig.enabled) {
+      panel.style.display = "none";
+      middle.classList.add("single-column");
+      return;
+    }
+
+    panel.style.display = "";
+    middle.classList.remove("single-column");
+
+    if (panelConfig.image) {
+      if (img.getAttribute("src") !== panelConfig.image) {
+        img.setAttribute("src", panelConfig.image);
+      }
+      img.style.display = "block";
+      iframe.style.display = "none";
+    } else {
+      img.style.display = "none";
+      iframe.style.display = "block";
+    }
   }
 
 
@@ -1584,6 +1646,7 @@ class HomeDisplayCardEditor extends HTMLElement {
     const next = {
       entities: { ...this._config.entities },
       sensors: this._config.sensors.map(sensor => ({ ...sensor })),
+      image_panel: { ...this._config.image_panel },
     };
 
     mutator(next);
@@ -1592,7 +1655,13 @@ class HomeDisplayCardEditor extends HTMLElement {
 
     this.dispatchEvent(
       new CustomEvent("config-changed", {
-        detail: { config: { entities: next.entities, sensors: next.sensors } },
+        detail: {
+          config: {
+            entities: next.entities,
+            sensors: next.sensors,
+            image_panel: next.image_panel,
+          },
+        },
         bubbles: true,
         composed: true,
       })
@@ -1685,6 +1754,32 @@ class HomeDisplayCardEditor extends HTMLElement {
           cursor: pointer;
           font-size: 13px;
         }
+
+        .toggle-field {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 13px;
+          color: var(--primary-text-color, #212121);
+          margin-bottom: 10px;
+          cursor: pointer;
+        }
+
+        .image-preview {
+          display: block;
+          max-width: 100%;
+          max-height: 140px;
+          border-radius: 6px;
+          margin-bottom: 8px;
+          object-fit: cover;
+        }
+
+        .file-input {
+          display: block;
+          margin-bottom: 6px;
+          font-size: 13px;
+          color: var(--primary-text-color, #212121);
+        }
       `;
 
       this._container = document.createElement("div");
@@ -1700,6 +1795,7 @@ class HomeDisplayCardEditor extends HTMLElement {
     }
 
     this._container.appendChild(this._buildSensorSection());
+    this._container.appendChild(this._buildImagePanelSection());
 
     this._applyHass();
   }
@@ -1858,6 +1954,111 @@ class HomeDisplayCardEditor extends HTMLElement {
       if (picker && picker.tagName === "HA-ENTITY-PICKER") {
         picker.hass = this._hass;
       }
+    }
+  }
+
+  _buildImagePanelSection() {
+    const section = document.createElement("div");
+    section.className = "section";
+
+    const title = document.createElement("h3");
+    title.textContent = "Bottom Right Panel";
+    section.appendChild(title);
+
+    const hint = document.createElement("p");
+    hint.className = "hint";
+    hint.textContent =
+      "Shows the wedding countdown by default. Upload an image to replace it, or turn the panel off entirely.";
+    section.appendChild(hint);
+
+    const toggleWrap = document.createElement("label");
+    toggleWrap.className = "toggle-field";
+
+    const toggle = document.createElement("input");
+    toggle.type = "checkbox";
+    toggle.checked = this._config.image_panel.enabled;
+
+    toggle.addEventListener("change", () => {
+      this._updateConfig((cfg) => {
+        cfg.image_panel = { ...cfg.image_panel, enabled: toggle.checked };
+      });
+    });
+
+    toggleWrap.append(toggle, document.createTextNode(" Show bottom-right panel"));
+    section.appendChild(toggleWrap);
+
+    if (this._config.image_panel.image) {
+      const preview = document.createElement("img");
+      preview.className = "image-preview";
+      preview.src = this._config.image_panel.image;
+      section.appendChild(preview);
+
+      const removeButton = document.createElement("button");
+      removeButton.type = "button";
+      removeButton.className = "add-button";
+      removeButton.textContent = "Remove uploaded image";
+
+      removeButton.addEventListener("click", () => {
+        this._updateConfig((cfg) => {
+          cfg.image_panel = { ...cfg.image_panel, image: "" };
+        });
+        this._render();
+      });
+
+      section.appendChild(removeButton);
+    }
+
+    const fileInput = document.createElement("input");
+    fileInput.type = "file";
+    fileInput.accept = "image/*";
+    fileInput.className = "file-input";
+
+    fileInput.addEventListener("change", async () => {
+      const file = fileInput.files?.[0];
+      if (!file || !this._hass) return;
+
+      this._setUploadStatus("Uploading...");
+
+      try {
+        const url = await this._uploadImage(file);
+        this._updateConfig((cfg) => {
+          cfg.image_panel = { ...cfg.image_panel, image: url };
+        });
+        this._render();
+      } catch (err) {
+        this._setUploadStatus(`Upload failed: ${err.message || err}`);
+      }
+    });
+
+    section.appendChild(fileInput);
+
+    this._uploadStatusEl = document.createElement("p");
+    this._uploadStatusEl.className = "hint";
+    section.appendChild(this._uploadStatusEl);
+
+    return section;
+  }
+
+  async _uploadImage(file) {
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const response = await this._hass.fetchWithAuth("/api/image/upload", {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    return `/api/image/serve/${data.id}/original`;
+  }
+
+  _setUploadStatus(text) {
+    if (this._uploadStatusEl) {
+      this._uploadStatusEl.textContent = text;
     }
   }
 }
