@@ -5,7 +5,7 @@
  * panel (wedding countdown iframe by default, or an uploaded image).
  */
 
-const CARD_VERSION = "1.0.1";
+const CARD_VERSION = "1.0.2";
 
 console.info(
   `%c HOME-DISPLAY-CARD %c v${CARD_VERSION} `,
@@ -43,10 +43,43 @@ const SPECIAL_ROWS = [
   { key: "motzi", elementId: "motzi", attribute: "Zman_Motzi_Simple" },
 ];
 
+const DEFAULT_IFRAME_SRC = "/local/wedding-countdown-new.html";
+
+const IMAGE_PANEL_MODES = ["default", "image", "custom"];
+
 const DEFAULT_IMAGE_PANEL = {
   enabled: true,
+  mode: "default",
   image: "",
+  custom_code: "",
 };
+
+function buildCustomPanelHtml(code) {
+  const safeCode = String(code ?? "").replace(/<\/script/gi, "<\\/script");
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #eee4d5;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  }
+</style>
+</head>
+<body>
+<script>
+${safeCode}
+</script>
+</body>
+</html>`;
+}
 
 export const ENTITY_SECTIONS = [
   {
@@ -103,7 +136,18 @@ export function normalizeConfig(config) {
   const sensors = Array.isArray(source.sensors)
     ? source.sensors.map(normalizeSensorEntry).filter(Boolean)
     : [];
-  const image_panel = { ...DEFAULT_IMAGE_PANEL, ...(source.image_panel || {}) };
+
+  const providedPanel = source.image_panel || {};
+  const image_panel = { ...DEFAULT_IMAGE_PANEL, ...providedPanel };
+
+  if (!providedPanel.mode) {
+    // Back-compat: configs saved before "mode" existed only had `image`.
+    image_panel.mode = providedPanel.image ? "image" : "default";
+  }
+  if (!IMAGE_PANEL_MODES.includes(image_panel.mode)) {
+    image_panel.mode = "default";
+  }
+
   return { entities, sensors, image_panel };
 }
 
@@ -115,6 +159,7 @@ class HomeDisplayCard extends HTMLElement {
     this._config = normalizeConfig({});
     this._clockTimer = null;
     this._lastSheetSignature = "";
+    this._lastCustomCode = null;
   }
 
   static getConfigElement() {
@@ -1183,7 +1228,7 @@ class HomeDisplayCard extends HTMLElement {
 
               <iframe
                 id="imagePanelIframe"
-                src="/local/wedding-countdown-new.html"
+                src="${DEFAULT_IFRAME_SRC}"
                 title="Bottom Right Panel">
               </iframe>
 
@@ -1475,15 +1520,41 @@ class HomeDisplayCard extends HTMLElement {
     panel.style.display = "";
     middle.classList.remove("single-column");
 
-    if (panelConfig.image) {
+    const mode =
+      panelConfig.mode === "image" && panelConfig.image
+        ? "image"
+        : panelConfig.mode === "custom" && panelConfig.custom_code
+        ? "custom"
+        : "default";
+
+    if (mode === "image") {
+      img.style.display = "block";
+      iframe.style.display = "none";
+
       if (img.getAttribute("src") !== panelConfig.image) {
         img.setAttribute("src", panelConfig.image);
       }
-      img.style.display = "block";
-      iframe.style.display = "none";
+    } else if (mode === "custom") {
+      img.style.display = "none";
+      iframe.style.display = "block";
+      iframe.setAttribute("sandbox", "allow-scripts");
+
+      if (this._lastCustomCode !== panelConfig.custom_code) {
+        iframe.removeAttribute("src");
+        iframe.srcdoc = buildCustomPanelHtml(panelConfig.custom_code);
+        this._lastCustomCode = panelConfig.custom_code;
+      }
     } else {
       img.style.display = "none";
       iframe.style.display = "block";
+      iframe.removeAttribute("sandbox");
+      iframe.removeAttribute("srcdoc");
+
+      if (iframe.getAttribute("src") !== DEFAULT_IFRAME_SRC) {
+        iframe.setAttribute("src", DEFAULT_IFRAME_SRC);
+      }
+
+      this._lastCustomCode = null;
     }
   }
 
@@ -1684,6 +1755,9 @@ class HomeDisplayCardEditor extends HTMLElement {
       style.textContent = `
         .section {
           margin-bottom: 16px;
+          padding: 12px;
+          border: 1px solid var(--divider-color, #e0e0e0);
+          border-radius: 8px;
         }
 
         h3 {
@@ -1710,7 +1784,8 @@ class HomeDisplayCardEditor extends HTMLElement {
           margin-bottom: 2px;
         }
 
-        .field input {
+        .field input,
+        .field select {
           width: 100%;
           box-sizing: border-box;
           padding: 8px;
@@ -1718,6 +1793,20 @@ class HomeDisplayCardEditor extends HTMLElement {
           border: 1px solid var(--divider-color, #e0e0e0);
           background: var(--card-background-color, #fff);
           color: var(--primary-text-color, #212121);
+        }
+
+        .code-textarea {
+          width: 100%;
+          box-sizing: border-box;
+          min-height: 160px;
+          padding: 8px;
+          border-radius: 4px;
+          border: 1px solid var(--divider-color, #e0e0e0);
+          background: var(--card-background-color, #fff);
+          color: var(--primary-text-color, #212121);
+          font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+          font-size: 12px;
+          resize: vertical;
         }
 
         .sensor-row {
@@ -1798,12 +1887,22 @@ class HomeDisplayCardEditor extends HTMLElement {
     this._pickers = [];
     this._container.innerHTML = "";
 
-    for (const section of ENTITY_SECTIONS) {
-      this._container.appendChild(this._buildEntitySection(section));
-    }
+    // Sensors and the image panel are the most-used sections, so they're
+    // built first (and appear first) even if an entity picker below them
+    // fails to build for some reason.
+    const sectionBuilders = [
+      () => this._buildSensorSection(),
+      () => this._buildImagePanelSection(),
+      ...ENTITY_SECTIONS.map((section) => () => this._buildEntitySection(section)),
+    ];
 
-    this._container.appendChild(this._buildSensorSection());
-    this._container.appendChild(this._buildImagePanelSection());
+    for (const build of sectionBuilders) {
+      try {
+        this._container.appendChild(build());
+      } catch (err) {
+        console.error("home-display-card-editor: failed to build a section", err);
+      }
+    }
 
     this._applyHass();
   }
@@ -1975,8 +2074,7 @@ class HomeDisplayCardEditor extends HTMLElement {
 
     const hint = document.createElement("p");
     hint.className = "hint";
-    hint.textContent =
-      "Shows the wedding countdown by default. Upload an image to replace it, or turn the panel off entirely.";
+    hint.textContent = "Choose what shows in the bottom-right panel, or turn it off entirely.";
     section.appendChild(hint);
 
     const toggleWrap = document.createElement("label");
@@ -1995,11 +2093,47 @@ class HomeDisplayCardEditor extends HTMLElement {
     toggleWrap.append(toggle, document.createTextNode(" Show bottom-right panel"));
     section.appendChild(toggleWrap);
 
+    const modeWrap = document.createElement("div");
+    modeWrap.className = "field";
+
+    const modeLabel = document.createElement("label");
+    modeLabel.textContent = "Content";
+
+    const modeSelect = document.createElement("select");
+    modeSelect.innerHTML = `
+      <option value="default">Default (wedding countdown)</option>
+      <option value="image">Uploaded image</option>
+      <option value="custom">Custom code (HTML/JS)</option>
+    `;
+    modeSelect.value = this._config.image_panel.mode;
+
+    modeSelect.addEventListener("change", () => {
+      this._updateConfig((cfg) => {
+        cfg.image_panel = { ...cfg.image_panel, mode: modeSelect.value };
+      });
+      this._render();
+    });
+
+    modeWrap.append(modeLabel, modeSelect);
+    section.appendChild(modeWrap);
+
+    if (this._config.image_panel.mode === "image") {
+      section.appendChild(this._buildImageModeControls());
+    } else if (this._config.image_panel.mode === "custom") {
+      section.appendChild(this._buildCustomCodeControls());
+    }
+
+    return section;
+  }
+
+  _buildImageModeControls() {
+    const wrap = document.createElement("div");
+
     if (this._config.image_panel.image) {
       const preview = document.createElement("img");
       preview.className = "image-preview";
       preview.src = this._config.image_panel.image;
-      section.appendChild(preview);
+      wrap.appendChild(preview);
 
       const removeButton = document.createElement("button");
       removeButton.type = "button";
@@ -2013,7 +2147,7 @@ class HomeDisplayCardEditor extends HTMLElement {
         this._render();
       });
 
-      section.appendChild(removeButton);
+      wrap.appendChild(removeButton);
     }
 
     const fileInput = document.createElement("input");
@@ -2038,13 +2172,39 @@ class HomeDisplayCardEditor extends HTMLElement {
       }
     });
 
-    section.appendChild(fileInput);
+    wrap.appendChild(fileInput);
 
     this._uploadStatusEl = document.createElement("p");
     this._uploadStatusEl.className = "hint";
-    section.appendChild(this._uploadStatusEl);
+    wrap.appendChild(this._uploadStatusEl);
 
-    return section;
+    return wrap;
+  }
+
+  _buildCustomCodeControls() {
+    const wrap = document.createElement("div");
+
+    const hint = document.createElement("p");
+    hint.className = "hint";
+    hint.textContent =
+      "Paste JavaScript to run in the panel. It executes inside a sandboxed, origin-isolated iframe — it cannot access Home Assistant, your login, or the rest of the dashboard.";
+    wrap.appendChild(hint);
+
+    const textarea = document.createElement("textarea");
+    textarea.className = "code-textarea";
+    textarea.placeholder = "document.body.innerHTML = '<h1>Hello</h1>';";
+    textarea.value = this._config.image_panel.custom_code || "";
+    textarea.spellcheck = false;
+
+    textarea.addEventListener("change", () => {
+      this._updateConfig((cfg) => {
+        cfg.image_panel = { ...cfg.image_panel, custom_code: textarea.value };
+      });
+    });
+
+    wrap.appendChild(textarea);
+
+    return wrap;
   }
 
   async _uploadImage(file) {

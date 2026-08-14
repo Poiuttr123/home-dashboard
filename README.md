@@ -44,7 +44,9 @@ sensors:
     name: Custom label
 image_panel:
   enabled: true
+  mode: default   # "default" | "image" | "custom"
   image: ""
+  custom_code: ""
 ```
 
 ### `entities`
@@ -78,15 +80,29 @@ Controls the bottom-right panel:
 
 - `enabled` — `true`/`false`. When `false`, the panel is hidden and the
   Daily Information card expands to fill the row.
-- `image` — a URL to display as a static image instead of the wedding
-  countdown iframe. Leave empty to keep the iframe.
+- `mode` — `default` (wedding countdown iframe), `image` (a static uploaded
+  image), or `custom` (your own JavaScript).
+- `image` — used when `mode: image`. A URL to display, normally set for you
+  by the visual editor's upload button.
+- `custom_code` — used when `mode: custom`. Raw JavaScript, run inside a
+  sandboxed `<iframe sandbox="allow-scripts">` with `srcdoc` (an
+  origin-isolated environment: no access to Home Assistant, your login
+  session, cookies, or the rest of the dashboard — it can only draw into its
+  own document). Whatever it renders fills the panel.
 
-In the visual editor, use the **Bottom Right Panel** section to toggle
-visibility and upload an image file directly — the file is uploaded to Home
-Assistant's built-in Image Upload integration (`/api/image/upload`) and the
-resulting `/api/image/serve/<id>/original` URL is stored in `image`. Uploading
-a new image or clicking **Remove uploaded image** reverts to the wedding
-countdown iframe.
+In the visual editor, the **Bottom Right Panel** section has a toggle, a
+**Content** dropdown for the three modes above, and mode-specific controls:
+an upload button for `image` mode (uploads to Home Assistant's built-in
+Image Upload integration, `/api/image/upload`, and stores the resulting
+`/api/image/serve/<id>/original` URL), or a code textarea for `custom` mode.
+
+There's no generic file-upload API in Home Assistant for arbitrary files
+like `.js` — the Image Upload integration only accepts and processes images.
+To run your own script/widget, paste its code directly into `custom_code`.
+(The `default` mode's file path, `/local/wedding-countdown-new.html`, is
+still fixed — same as the card's original behavior — so replacing that
+countdown with something else entirely means either using `custom_code`, or
+overwriting that file yourself in `config/www/`.)
 
 ## Updating
 
