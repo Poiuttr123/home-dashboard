@@ -69,3 +69,24 @@ proper Lovelace custom card:
   in a tall card that meant huge gaps between rows. Rows now size to their
   content (`min-content`) and pack toward the top (`align-content: start`),
   so they sit close together regardless of how much of the card they fill.
+
+## v1.1.0
+
+- **The weather card now shows a 5-day forecast.** A row of day columns
+  (weekday name, condition icon, high/low) sits under the current
+  conditions; the current icon and temperature shrink slightly to make
+  room, and nothing else on the dashboard moves.
+- **Fixes a forecast that could never have worked on a current Home
+  Assistant.** The card read today's high/low from the weather entity's
+  `forecast` attribute, which Home Assistant deprecated in 2023.9 and
+  removed in 2024.4 — so that line has been rendering blank. The forecast
+  is now requested over the websocket connection
+  (`weather/subscribe_forecast`, the same mechanism the built-in forecast
+  card uses), which also pushes updates as they arrive instead of only
+  refreshing when some other entity changes. Cores old enough to still
+  expose the attribute fall back to it.
+- New `forecast` config section (`enabled`, `days`, 1-7, default 5), with a
+  **Weather Forecast** section in the visual editor. With the strip turned
+  off, the details line goes back to showing today's `High … / Low …`.
+- The subscription follows the configured weather entity, and is torn down
+  when the card leaves the DOM.

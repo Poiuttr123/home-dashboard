@@ -1,11 +1,12 @@
 /**
  * Home Display Card
- * A full dashboard-style Lovelace card: clock, weather, zmanim, special times,
- * a configurable "Daily Information" sensor list, and a toggleable bottom-right
- * panel (wedding countdown iframe by default, or an uploaded image).
+ * A full dashboard-style Lovelace card: clock, weather with a multi-day
+ * forecast, zmanim, special times, a configurable "Daily Information" sensor
+ * list, and a toggleable bottom-right panel (wedding countdown iframe by
+ * default, or an uploaded image).
  */
 
-const CARD_VERSION = "1.0.5";
+const CARD_VERSION = "1.1.0";
 
 console.info(
   `%c HOME-DISPLAY-CARD %c v${CARD_VERSION} `,
@@ -46,6 +47,14 @@ const SPECIAL_ROWS = [
 const DEFAULT_IFRAME_SRC = "/local/wedding-countdown-new.html";
 
 const IMAGE_PANEL_MODES = ["default", "image", "custom"];
+
+const DEFAULT_FORECAST = {
+  enabled: true,
+  days: 5,
+};
+
+const MIN_FORECAST_DAYS = 1;
+const MAX_FORECAST_DAYS = 7;
 
 const DEFAULT_IMAGE_PANEL = {
   enabled: true,
@@ -152,7 +161,17 @@ export function normalizeConfig(config) {
     image_panel.mode = "default";
   }
 
-  return { entities, sensors, image_panel };
+  const forecast = { ...DEFAULT_FORECAST, ...(source.forecast || {}) };
+
+  forecast.enabled = forecast.enabled !== false;
+
+  const days = Number.parseInt(forecast.days, 10);
+
+  forecast.days = Number.isFinite(days)
+    ? Math.min(MAX_FORECAST_DAYS, Math.max(MIN_FORECAST_DAYS, days))
+    : DEFAULT_FORECAST.days;
+
+  return { entities, sensors, image_panel, forecast };
 }
 
 class HomeDisplayCard extends HTMLElement {
@@ -164,6 +183,13 @@ class HomeDisplayCard extends HTMLElement {
     this._clockTimer = null;
     this._lastSheetSignature = "";
     this._lastCustomCode = null;
+
+    this._forecast = [];
+    this._forecastEntityId = null;
+    this._forecastUnsub = null;
+    this._forecastToken = null;
+    this._forecastPending = false;
+    this._lastForecastSignature = null;
   }
 
   static getConfigElement() {
@@ -176,6 +202,7 @@ class HomeDisplayCard extends HTMLElement {
       entities: { ...DEFAULT_ENTITIES },
       sensors: [],
       image_panel: { ...DEFAULT_IMAGE_PANEL },
+      forecast: { ...DEFAULT_FORECAST },
     };
   }
 
@@ -185,6 +212,7 @@ class HomeDisplayCard extends HTMLElement {
     }
     this._config = normalizeConfig(config);
     if (this._hass) {
+      this.syncForecastSubscription();
       this.updateData();
     }
   }
@@ -201,12 +229,17 @@ class HomeDisplayCard extends HTMLElement {
       this.startClock();
     }
 
+    this.syncForecastSubscription();
     this.updateData();
   }
 
   connectedCallback() {
     if (!this._clockTimer) {
       this.startClock();
+    }
+
+    if (this._hass) {
+      this.syncForecastSubscription();
     }
   }
 
@@ -215,6 +248,8 @@ class HomeDisplayCard extends HTMLElement {
       clearInterval(this._clockTimer);
       this._clockTimer = null;
     }
+
+    this.unsubscribeForecast();
   }
 
   getEntity(entityId) {
@@ -457,7 +492,8 @@ class HomeDisplayCard extends HTMLElement {
 
           grid-template-rows:
             auto
-            1fr
+            minmax(0, 1fr)
+            auto
             auto;
 
           min-height: 0;
@@ -492,14 +528,14 @@ class HomeDisplayCard extends HTMLElement {
 
         .weather-icon {
           font-size:
-            clamp(34px, min(4.6vw, 7.2vh), 65px);
+            clamp(26px, min(3.4vw, 5.4vh), 48px);
 
           line-height: 1;
         }
 
         .weather-temp {
           font-size:
-            clamp(36px, min(5vw, 7.5vh), 68px);
+            clamp(28px, min(3.8vw, 5.8vh), 52px);
 
           font-weight: 300;
           line-height: 1;
@@ -528,6 +564,93 @@ class HomeDisplayCard extends HTMLElement {
             clamp(9px, min(.95vw, 1.45vh), 13px);
 
           white-space: nowrap;
+        }
+
+        /* The high/low span is empty while the forecast strip is on;
+           without this it would still take up a flex gap. */
+        .weather-details span:empty {
+          display: none;
+        }
+
+        /* Column count is set from the configured day count in
+           renderForecast(); this is only the fallback. */
+        .weather-forecast {
+          display: grid;
+
+          grid-template-columns:
+            repeat(5, minmax(0, 1fr));
+
+          gap: clamp(2px, .45vw, 7px);
+
+          margin-top: clamp(5px, .9vh, 10px);
+          padding-top: clamp(5px, .9vh, 10px);
+
+          border-top:
+            1px solid rgba(86, 172, 225, 0.18);
+        }
+
+        /* display:grid above would otherwise beat the UA [hidden] rule. */
+        .weather-forecast[hidden] {
+          display: none;
+        }
+
+        .forecast-day {
+          min-width: 0;
+
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+
+          gap: clamp(1px, .3vh, 3px);
+
+          text-align: center;
+        }
+
+        .forecast-name {
+          font-size:
+            clamp(8px, min(.8vw, 1.25vh), 12px);
+
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: .6px;
+
+          color: #5ebaf2;
+
+          max-width: 100%;
+
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .forecast-icon {
+          font-size:
+            clamp(13px, min(1.6vw, 2.5vh), 24px);
+
+          line-height: 1;
+        }
+
+        .forecast-temps {
+          display: flex;
+          align-items: baseline;
+
+          gap: 4px;
+
+          white-space: nowrap;
+        }
+
+        .forecast-high {
+          font-size:
+            clamp(10px, min(1vw, 1.55vh), 15px);
+
+          font-weight: 600;
+        }
+
+        .forecast-low {
+          font-size:
+            clamp(9px, min(.9vw, 1.4vh), 13px);
+
+          color: #7ea6bf;
         }
 
 
@@ -1060,6 +1183,12 @@ class HomeDisplayCard extends HTMLElement {
 
               </div>
 
+
+              <div
+                class="weather-forecast"
+                id="weatherForecast"
+                hidden></div>
+
             </section>
 
 
@@ -1463,31 +1592,22 @@ class HomeDisplayCard extends HTMLElement {
       );
 
 
-      let forecastText = "";
-
-
-      if (
-        Array.isArray(
-          attrs.forecast
-        ) &&
-        attrs.forecast.length
-      ) {
-
-        const today =
-          attrs.forecast[0];
-
-
-        forecastText =
-          `High ${today.temperature ?? "--"}°` +
-          ` / Low ${today.templow ?? "--"}°`;
-      }
-
+      // With the forecast strip on, today's high/low is already the
+      // first column, so the details line only carries it when the
+      // strip is switched off.
+      const today = this.forecastEntries()[0];
 
       this.setText(
         "weatherHighLow",
-        forecastText
+        !this._config.forecast.enabled && today
+          ? `High ${today.temperature ?? "--"}°` +
+            ` / Low ${today.templow ?? "--"}°`
+          : ""
       );
     }
+
+
+    this.renderForecast();
 
 
     /* ==========================================================
@@ -1563,6 +1683,261 @@ class HomeDisplayCard extends HTMLElement {
 
       this._lastCustomCode = null;
     }
+  }
+
+
+  /* ==========================================================
+     FORECAST
+
+     Weather entities stopped carrying a "forecast" attribute in
+     Home Assistant 2024.4 (deprecated in 2023.9), so the forecast
+     has to be requested over the websocket connection, which then
+     pushes updates as they come in. Older cores that still expose
+     the attribute are covered by the fallback in forecastEntries().
+     ========================================================== */
+
+  syncForecastSubscription() {
+
+    const entityId = this._config.forecast.enabled
+      ? this._config.entities.weather
+      : "";
+
+
+    if (
+      entityId === this._forecastEntityId &&
+      (this._forecastUnsub || this._forecastPending)
+    ) {
+      return;
+    }
+
+
+    if (entityId !== this._forecastEntityId) {
+      // Data from the previous entity must not linger on screen.
+      this._forecast = [];
+    }
+
+
+    this.unsubscribeForecast();
+
+    this._forecastEntityId = entityId;
+
+
+    if (
+      !entityId ||
+      !this._hass?.connection?.subscribeMessage
+    ) {
+      return;
+    }
+
+
+    // Guards against a subscription that resolves after we have
+    // already moved on to a different entity.
+    const token = {};
+
+    this._forecastToken = token;
+    this._forecastPending = true;
+
+
+    this._hass.connection
+      .subscribeMessage(
+        (message) => {
+          if (this._forecastToken !== token) return;
+
+          this._forecast = Array.isArray(message?.forecast)
+            ? message.forecast
+            : [];
+
+          this.renderForecast();
+        },
+        {
+          type: "weather/subscribe_forecast",
+          forecast_type: "daily",
+          entity_id: entityId,
+        }
+      )
+      .then((unsub) => {
+        this._forecastPending = false;
+
+        if (this._forecastToken !== token) {
+          // Superseded while in flight — close what we just opened.
+          unsub();
+          return;
+        }
+
+        this._forecastUnsub = unsub;
+      })
+      .catch(() => {
+        this._forecastPending = false;
+
+        if (this._forecastToken !== token) return;
+
+        // Entity provides no daily forecast, or the core predates
+        // the command; the attribute fallback handles the rest.
+        this._forecastUnsub = null;
+
+        this.renderForecast();
+      });
+  }
+
+
+  unsubscribeForecast() {
+
+    this._forecastToken = null;
+    this._forecastPending = false;
+
+
+    if (this._forecastUnsub) {
+
+      try {
+        this._forecastUnsub();
+      } catch (err) {
+        // The connection may already be gone; nothing to clean up.
+      }
+
+      this._forecastUnsub = null;
+    }
+  }
+
+
+  forecastEntries() {
+
+    if (
+      Array.isArray(this._forecast) &&
+      this._forecast.length
+    ) {
+      return this._forecast;
+    }
+
+
+    const legacy =
+      this.getEntity(this._config.entities.weather)
+        ?.attributes
+        ?.forecast;
+
+
+    return Array.isArray(legacy) ? legacy : [];
+  }
+
+
+  forecastDayLabel(entry, index) {
+
+    const date = entry?.datetime
+      ? new Date(entry.datetime)
+      : null;
+
+
+    if (!date || Number.isNaN(date.getTime())) {
+      return index === 0 ? "Today" : "--";
+    }
+
+
+    if (date.toDateString() === new Date().toDateString()) {
+      return "Today";
+    }
+
+
+    return date.toLocaleDateString(
+      this._hass?.locale?.language || undefined,
+      { weekday: "short" }
+    );
+  }
+
+
+  renderForecast() {
+
+    const container =
+      this.shadowRoot?.getElementById(
+        "weatherForecast"
+      );
+
+
+    if (!container) return;
+
+
+    if (!this._config.forecast.enabled) {
+
+      container.hidden = true;
+      container.innerHTML = "";
+
+      this._lastForecastSignature = "";
+
+      return;
+    }
+
+
+    const entries =
+      this.forecastEntries()
+        .slice(0, this._config.forecast.days);
+
+
+    const signature =
+      entries
+        .map(
+          (entry, index) =>
+            [
+              this.forecastDayLabel(entry, index),
+              entry?.condition,
+              entry?.temperature,
+              entry?.templow,
+            ].join(":")
+        )
+        .join("|");
+
+
+    if (
+      signature ===
+      this._lastForecastSignature
+    ) {
+      return;
+    }
+
+
+    this._lastForecastSignature = signature;
+
+
+    container.hidden = entries.length === 0;
+
+
+    if (!entries.length) {
+      container.innerHTML = "";
+      return;
+    }
+
+
+    container.style.gridTemplateColumns =
+      `repeat(${entries.length}, minmax(0, 1fr))`;
+
+
+    container.innerHTML =
+      entries
+        .map(
+          (entry, index) => `
+              <div class="forecast-day">
+
+                <div class="forecast-name">
+                  ${escapeHtml(this.forecastDayLabel(entry, index))}
+                </div>
+
+                <div class="forecast-icon">
+                  ${this.weatherEmoji(entry?.condition)}
+                </div>
+
+                <div class="forecast-temps">
+
+                  <span class="forecast-high">
+                    ${escapeHtml(entry?.temperature ?? "--")}°
+                  </span>
+
+                  <span class="forecast-low">
+                    ${escapeHtml(entry?.templow ?? "--")}°
+                  </span>
+
+                </div>
+
+              </div>
+            `
+        )
+        .join("");
   }
 
 
@@ -1742,6 +2117,7 @@ class HomeDisplayCardEditor extends HTMLElement {
       entities: { ...this._config.entities },
       sensors: this._config.sensors.map(sensor => ({ ...sensor })),
       image_panel: { ...this._config.image_panel },
+      forecast: { ...this._config.forecast },
     };
 
     mutator(next);
@@ -1753,6 +2129,7 @@ class HomeDisplayCardEditor extends HTMLElement {
       entities: next.entities,
       sensors: next.sensors,
       image_panel: next.image_panel,
+      forecast: next.forecast,
     };
 
     this._rawConfig = fullConfig;
@@ -1922,6 +2299,7 @@ class HomeDisplayCardEditor extends HTMLElement {
     // fails to build for some reason.
     const sectionBuilders = [
       () => this._buildSensorSection(),
+      () => this._buildForecastSection(),
       () => this._buildImagePanelSection(),
       ...ENTITY_SECTIONS.map((section) => () => this._buildEntitySection(section)),
     ];
@@ -2149,6 +2527,71 @@ class HomeDisplayCardEditor extends HTMLElement {
         picker.hass = this._hass;
       }
     }
+  }
+
+  _buildForecastSection() {
+    const section = document.createElement("div");
+    section.className = "section";
+
+    const title = document.createElement("h3");
+    title.textContent = "Weather Forecast";
+    section.appendChild(title);
+
+    const hint = document.createElement("p");
+    hint.className = "hint";
+    hint.textContent =
+      "Shows a multi-day forecast strip below the current conditions. Requires a weather entity that provides a daily forecast.";
+    section.appendChild(hint);
+
+    const toggleWrap = document.createElement("label");
+    toggleWrap.className = "toggle-field";
+
+    const toggle = document.createElement("input");
+    toggle.type = "checkbox";
+    toggle.checked = this._config.forecast.enabled;
+
+    toggle.addEventListener("change", () => {
+      this._updateConfig((cfg) => {
+        cfg.forecast = { ...cfg.forecast, enabled: toggle.checked };
+      });
+      this._render();
+    });
+
+    toggleWrap.append(toggle, document.createTextNode(" Show forecast"));
+    section.appendChild(toggleWrap);
+
+    if (this._config.forecast.enabled) {
+      const daysWrap = document.createElement("div");
+      daysWrap.className = "field";
+
+      const daysLabel = document.createElement("label");
+      daysLabel.textContent = "Days";
+
+      const daysSelect = document.createElement("select");
+
+      for (let day = MIN_FORECAST_DAYS; day <= MAX_FORECAST_DAYS; day += 1) {
+        const option = document.createElement("option");
+        option.value = String(day);
+        option.textContent = `${day} day${day === 1 ? "" : "s"}`;
+        daysSelect.appendChild(option);
+      }
+
+      daysSelect.value = String(this._config.forecast.days);
+
+      daysSelect.addEventListener("change", () => {
+        this._updateConfig((cfg) => {
+          cfg.forecast = {
+            ...cfg.forecast,
+            days: Number.parseInt(daysSelect.value, 10),
+          };
+        });
+      });
+
+      daysWrap.append(daysLabel, daysSelect);
+      section.appendChild(daysWrap);
+    }
+
+    return section;
   }
 
   _buildImagePanelSection() {

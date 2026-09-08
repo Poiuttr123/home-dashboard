@@ -1,9 +1,9 @@
 # Home Display Card
 
-A full dashboard-style Lovelace card for Home Assistant: clock, weather, zmanim,
-special times, a configurable "Daily Information" sensor list, and a toggleable
-bottom-right panel (wedding countdown iframe by default, or your own uploaded
-image).
+A full dashboard-style Lovelace card for Home Assistant: clock, weather with a
+5-day forecast, zmanim, special times, a configurable "Daily Information" sensor
+list, and a toggleable bottom-right panel (wedding countdown iframe by default,
+or your own uploaded image).
 
 This is a **frontend card** (plain JavaScript, no backend integration), installed
 through HACS as a **Plugin**.
@@ -38,6 +38,9 @@ entities:
   maariv: sensor.yidcal_zman_maariv_rt
   erev: sensor.yidcal_zman_erev
   motzi: sensor.yidcal_zman_motzi
+forecast:
+  enabled: true
+  days: 5
 sensors:
   - entity: sensor.example_one
   - entity: sensor.example_two
@@ -53,6 +56,23 @@ image_panel:
 
 Maps each part of the card to a Home Assistant entity. All keys are optional;
 unspecified keys fall back to the defaults shown above.
+
+### `forecast`
+
+Controls the multi-day forecast strip under the current conditions.
+
+- `enabled` — `true`/`false`. When `false`, the strip is hidden and the
+  details line falls back to today's `High … / Low …` instead.
+- `days` — how many days to show, `1`–`7` (default `5`). Fewer are shown if
+  the weather entity provides fewer.
+
+The forecast is requested over Home Assistant's websocket connection
+(`weather/subscribe_forecast`), so it updates as the integration pushes new
+data. Home Assistant removed the old `forecast` entity attribute in 2024.4;
+the card still falls back to it if it's present, so older cores keep working.
+
+Not every weather integration provides a daily forecast. If yours doesn't,
+the strip stays hidden and the rest of the weather card is unaffected.
 
 ### `sensors`
 
@@ -92,6 +112,9 @@ Controls the bottom-right panel:
   origin-isolated environment: no access to Home Assistant, your login
   session, cookies, or the rest of the dashboard — it can only draw into its
   own document). Whatever it renders fills the panel.
+
+The **Weather Forecast** section of the visual editor has a matching toggle
+and a **Days** dropdown.
 
 In the visual editor, the **Bottom Right Panel** section has a toggle, a
 **Content** dropdown for the three modes above, and mode-specific controls:
