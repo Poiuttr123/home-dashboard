@@ -6,7 +6,7 @@
  * default, or an uploaded image).
  */
 
-const CARD_VERSION = "1.7.0";
+const CARD_VERSION = "1.9.0";
 
 console.info(
   `%c HOME-DISPLAY-CARD %c v${CARD_VERSION} `,
@@ -166,7 +166,58 @@ function normalizeLayout(source) {
   };
 }
 
-const STATUS_POSITIONS = ["daily_top", "daily_bottom", "footer"];
+const STATUS_POSITIONS = ["special", "daily_top", "daily_bottom", "footer"];
+
+/* ============================================================
+   TOP-RIGHT BLOCKS
+
+   The top-right box is a stack of blocks, each shown only when its
+   own condition passes, so the same corner can carry different
+   things on different days.
+   ============================================================ */
+
+const TOP_RIGHT_TYPES = ["special_times", "status", "sensors"];
+
+const DEFAULT_TOP_RIGHT = [{ type: "special_times", show_when: [] }];
+
+function normalizeConditionList(value) {
+  return Array.isArray(value)
+    ? value
+        .map(entry => (typeof entry === "string" ? entry : entry?.entity || ""))
+        .filter(Boolean)
+    : [];
+}
+
+function normalizeTopRightBlock(block) {
+  if (typeof block === "string") {
+    return TOP_RIGHT_TYPES.includes(block)
+      ? { type: block, title: "", show_when: [], sensors: [] }
+      : null;
+  }
+
+  if (!block || typeof block !== "object") return null;
+
+  const type = TOP_RIGHT_TYPES.includes(block.type)
+    ? block.type
+    : "special_times";
+
+  return {
+    type,
+    title: block.title || "",
+    show_when: normalizeConditionList(block.show_when),
+    sensors: Array.isArray(block.sensors)
+      ? block.sensors.map(normalizeSensorEntry).filter(Boolean)
+      : [],
+  };
+}
+
+function normalizeTopRight(source) {
+  if (!Array.isArray(source)) {
+    return DEFAULT_TOP_RIGHT.map(normalizeTopRightBlock);
+  }
+
+  return source.map(normalizeTopRightBlock).filter(Boolean);
+}
 
 const DEFAULT_STATUS_POSITION = "daily_bottom";
 
@@ -258,6 +309,8 @@ export function normalizeConfig(config) {
     ? source.status.map(normalizeStatusEntry).filter(Boolean)
     : [];
 
+  const top_right = normalizeTopRight(source.top_right);
+
   const status_position = STATUS_POSITIONS.includes(source.status_position)
     ? source.status_position
     : DEFAULT_STATUS_POSITION;
@@ -298,6 +351,7 @@ export function normalizeConfig(config) {
     sensors,
     status,
     status_position,
+    top_right,
     image_panel,
     forecast,
     layout,
@@ -313,6 +367,7 @@ class HomeDisplayCard extends HTMLElement {
     this._clockTimer = null;
     this._lastSheetSignature = "";
     this._lastStatusSignature = "";
+    this._lastTopRightSignature = null;
     // Last trustworthy value per entity, held across short outages.
     this._statusLastGood = {};
     this._lastCustomCode = null;
@@ -346,6 +401,7 @@ class HomeDisplayCard extends HTMLElement {
       sensors: [],
       status: [],
       status_position: DEFAULT_STATUS_POSITION,
+      top_right: [{ type: "special_times", show_when: [] }],
       layout: { ...DEFAULT_LAYOUT },
       image_panel: { ...DEFAULT_IMAGE_PANEL },
       forecast: { ...DEFAULT_FORECAST },
@@ -854,11 +910,107 @@ class HomeDisplayCard extends HTMLElement {
 
           display: grid;
 
-          grid-template-rows:
-            auto
-            repeat(3, 1fr);
+          grid-template-rows: minmax(0, 1fr);
 
           min-height: 0;
+        }
+
+        .special-blocks {
+          display: flex;
+          flex-direction: column;
+
+          gap: clamp(4px, .7vh, 9px);
+
+          min-height: 0;
+          height: 100%;
+
+          /* Too many blocks for the box clips at the bottom rather
+             than spilling over the cards around it. */
+          overflow: hidden;
+        }
+
+        .special-block {
+          display: flex;
+          flex-direction: column;
+
+          /* No min-height: 0 here. That lets a block shrink below its
+             own content, and the overflow then draws over the block
+             beneath it instead of being clipped. Flex's default
+             content-based minimum is what keeps blocks apart. */
+        }
+
+        /* The times fill whatever the other blocks leave, so a box with
+           only times looks exactly as it always did. */
+        .special-block-special_times {
+          flex: 1 1 auto;
+        }
+
+        .special-block-status,
+        .special-block-sensors {
+          flex: 0 0 auto;
+        }
+
+        .special-block-title {
+          margin-bottom: clamp(2px, .4vh, 5px);
+        }
+
+        .special-times[hidden] {
+          display: none;
+        }
+
+        .special-rows {
+          display: grid;
+
+          /* min-content, not 0: when other blocks share the box these
+             rows must stop shrinking at their text rather than
+             collapsing to nothing and overlapping each other. */
+          grid-template-rows:
+            repeat(3, minmax(min-content, 1fr));
+
+          min-height: 0;
+        }
+
+        .special-rows[hidden] {
+          display: none;
+        }
+
+        /* With indicators sharing the box, the times give up some size
+           so both fit without either being squeezed. */
+        .special-times.has-indicators .special-label {
+          font-size:
+            clamp(9px, min(.92vw, 1.42vh), 13px);
+        }
+
+        .special-times.has-indicators .special-value {
+          font-size:
+            clamp(11px, min(1.25vw, 1.95vh), 17px);
+        }
+
+        .special-times.has-indicators .special-icon {
+          width: clamp(16px, min(1.85vw, 2.9vh), 24px);
+          height: clamp(16px, min(1.85vw, 2.9vh), 24px);
+
+          font-size:
+            clamp(9px, min(.95vw, 1.55vh), 13px);
+        }
+
+        /* This box is a narrow column, so indicators stack as rows
+           rather than wrapping mid-chip. */
+        .indicator-strip-special {
+          flex-direction: column;
+          align-items: stretch;
+
+          gap: clamp(3px, .5vh, 6px);
+
+          margin-top: clamp(4px, .7vh, 8px);
+          padding-top: clamp(5px, .8vh, 9px);
+
+          border-top:
+            1px solid rgba(86, 172, 225, 0.18);
+        }
+
+        .indicator-strip-special .indicator {
+          justify-content: flex-start;
         }
 
         .special-row {
@@ -1532,11 +1684,18 @@ class HomeDisplayCard extends HTMLElement {
             </section>
 
 
-            <section class="card special-times">
+            <section
+              class="card special-times"
+              id="specialTimes">
 
-              <div class="section-title">
-                Special Times
-              </div>
+              <div
+                class="special-blocks"
+                id="specialBlocks"></div>
+
+
+              <div
+                class="special-rows"
+                id="specialRows">
 
 
               <div class="special-row">
@@ -1585,6 +1744,14 @@ class HomeDisplayCard extends HTMLElement {
                 </div>
 
               </div>
+
+              </div>
+
+
+              <div
+                class="indicator-strip indicator-strip-special"
+                id="statusStripSpecial"
+                hidden></div>
 
             </section>
 
@@ -1978,6 +2145,8 @@ class HomeDisplayCard extends HTMLElement {
        ========================================================== */
 
     this.applyLayout();
+
+    this.applyTopRight();
 
     this.renderStatus();
 
@@ -2607,6 +2776,7 @@ class HomeDisplayCard extends HTMLElement {
 
   statusContainers() {
     return {
+      special: this.shadowRoot?.getElementById("statusStripSpecial"),
       daily_top: this.shadowRoot?.getElementById("statusStripTop"),
       daily_bottom: this.shadowRoot?.getElementById("statusStripBottom"),
       footer: this.shadowRoot?.getElementById("statusStripFooter"),
@@ -2651,11 +2821,238 @@ class HomeDisplayCard extends HTMLElement {
   }
 
 
+  /* ==========================================================
+     SPECIAL TIMES
+
+     The times can be limited to the days they matter on - Shabbos,
+     Yom Tov, erev - while the box itself stays as long as it still
+     has indicators to show.
+     ========================================================== */
+
+  // A block with no conditions is always on. With conditions it shows
+  // when ANY of them is on, so "Shabbos or Yom Tov or erev" is just
+  // three entities rather than a rule to write.
+  conditionsPass(conditions) {
+
+    if (!conditions.length) return true;
+
+
+    return conditions.some(entityId => {
+
+      const raw =
+        String(this.getEntity(entityId)?.state ?? "")
+          .trim()
+          .toLowerCase();
+
+
+      return STATUS_ON_STATES.has(raw);
+    });
+  }
+
+
+  visibleTopRightBlocks() {
+
+    const blocks =
+      this._config.top_right.filter(block =>
+        this.conditionsPass(block.show_when)
+      );
+
+
+    // status_position: "special" is shorthand for a status block, so
+    // the indicators can be put here without hand-writing one.
+    const wantsStatus =
+      this._config.status_position === "special" &&
+      this._config.status.length > 0;
+
+    const hasStatusBlock =
+      blocks.some(block => block.type === "status");
+
+
+    if (wantsStatus && !hasStatusBlock) {
+      return [
+        ...blocks,
+        { type: "status", title: "", show_when: [], sensors: [] },
+      ];
+    }
+
+
+    return blocks;
+  }
+
+
+  // A visible status block in the top-right wins over status_position:
+  // asking for the indicators there is unambiguous, and it saves having
+  // to keep two settings in step.
+  effectiveStatusPosition() {
+
+    const inTopRight =
+      this.visibleTopRightBlocks()
+        .some(block => block.type === "status");
+
+
+    return inTopRight ? "special" : this._config.status_position;
+  }
+
+
+  applyTopRight() {
+
+    const box = this.shadowRoot?.getElementById("specialTimes");
+    const holder = this.shadowRoot?.getElementById("specialBlocks");
+    const rows = this.shadowRoot?.getElementById("specialRows");
+    const strip = this.shadowRoot?.getElementById("statusStripSpecial");
+    const top = this.shadowRoot?.querySelector(".top");
+
+
+    if (!box || !holder || !rows || !strip || !top) return;
+
+
+    const blocks = this.visibleTopRightBlocks();
+
+    const signature =
+      blocks
+        .map(
+          block =>
+            `${block.type}:${block.title}:` +
+            block.sensors.map(entry => entry.entity).join(",")
+        )
+        .join("|");
+
+
+    // An empty box is just a blank panel, so it goes entirely and the
+    // clock and weather take the width back.
+    box.hidden = blocks.length === 0;
+
+    top.style.gridTemplateColumns = blocks.length
+      ? ""
+      : "minmax(0, 1fr) minmax(0, 1.4fr)";
+
+
+    box.classList.toggle(
+      "has-indicators",
+      blocks.length > 1 &&
+        blocks.some(block => block.type === "special_times")
+    );
+
+
+    if (signature === this._lastTopRightSignature) {
+      // Contents still need refreshing even when the set of blocks
+      // has not changed.
+      this.renderTopRightSensors();
+      return;
+    }
+
+    this._lastTopRightSignature = signature;
+
+
+    // Park the reusable pieces on the box before rebuilding, so moving
+    // them never destroys the elements the other renderers write into.
+    // Parked means hidden: left visible they render on top of the
+    // blocks that replaced them.
+    if (rows.parentElement !== box) box.appendChild(rows);
+    if (strip.parentElement !== box) box.appendChild(strip);
+
+    rows.hidden = true;
+
+    holder.innerHTML = "";
+
+
+    for (const block of blocks) {
+
+      const wrap = document.createElement("div");
+      wrap.className = `special-block special-block-${block.type}`;
+
+
+      if (block.title) {
+        const title = document.createElement("div");
+        title.className = "section-title special-block-title";
+        title.textContent = block.title;
+        wrap.appendChild(title);
+      }
+
+
+      if (block.type === "special_times") {
+        if (!block.title) {
+          const title = document.createElement("div");
+          title.className = "section-title special-block-title";
+          title.textContent = "Special Times";
+          wrap.appendChild(title);
+        }
+        rows.hidden = false;
+        wrap.appendChild(rows);
+      } else if (block.type === "status") {
+        wrap.appendChild(strip);
+      } else {
+        const list = document.createElement("div");
+        list.className = "special-rows special-rows-auto";
+        list.dataset.block = String(holder.children.length);
+        wrap.appendChild(list);
+      }
+
+
+      holder.appendChild(wrap);
+    }
+
+
+    this.renderTopRightSensors();
+  }
+
+
+  // Sensor blocks reuse the Special Times row styling so a custom block
+  // sits in the box without looking bolted on.
+  renderTopRightSensors() {
+
+    const holder = this.shadowRoot?.getElementById("specialBlocks");
+
+    if (!holder) return;
+
+
+    const blocks = this.visibleTopRightBlocks()
+      .filter(block => block.type === "sensors");
+
+    const lists = holder.querySelectorAll(".special-rows-auto");
+
+
+    blocks.forEach((block, index) => {
+
+      const list = lists[index];
+
+      if (!list) return;
+
+
+      const rows = this.buildConfiguredSensorRows(block.sensors);
+
+      const markup =
+        rows
+          .map(
+            row => `
+                <div class="special-row">
+
+                  <div class="special-label">
+                    <span>${escapeHtml(row.name)}</span>
+                  </div>
+
+                  <div class="special-value">
+                    ${escapeHtml(row.value)}
+                  </div>
+
+                </div>
+              `
+          )
+          .join("");
+
+
+      if (list.innerHTML !== markup) {
+        list.innerHTML = markup;
+      }
+    });
+  }
+
+
   renderStatus() {
 
     const containers = this.statusContainers();
 
-    const position = this._config.status_position;
+    const position = this.effectiveStatusPosition();
 
     const container = containers[position];
 
@@ -2903,6 +3300,11 @@ class HomeDisplayCardEditor extends HTMLElement {
       sensors: this._config.sensors.map(sensor => ({ ...sensor })),
       status: this._config.status.map(entry => ({ ...entry })),
       status_position: this._config.status_position,
+      top_right: this._config.top_right.map(block => ({
+        ...block,
+        show_when: [...block.show_when],
+        sensors: block.sensors.map(entry => ({ ...entry })),
+      })),
       layout: { ...this._config.layout },
       image_panel: { ...this._config.image_panel },
       forecast: { ...this._config.forecast },
@@ -2918,6 +3320,7 @@ class HomeDisplayCardEditor extends HTMLElement {
       sensors: next.sensors,
       status: next.status,
       status_position: next.status_position,
+      top_right: next.top_right,
       layout: next.layout,
       image_panel: next.image_panel,
       forecast: next.forecast,
@@ -3090,6 +3493,7 @@ class HomeDisplayCardEditor extends HTMLElement {
     // fails to build for some reason.
     const sectionBuilders = [
       () => this._buildStatusSection(),
+      () => this._buildTopRightSection(),
       () => this._buildSensorSection(),
       () => this._buildForecastSection(),
       () => this._buildImagePanelSection(),
@@ -3171,6 +3575,213 @@ class HomeDisplayCardEditor extends HTMLElement {
     }
 
     return wrap;
+  }
+
+  _buildTopRightSection() {
+    const section = document.createElement("div");
+    section.className = "section";
+
+    const title = document.createElement("h3");
+    title.textContent = "Top Right Box";
+    section.appendChild(title);
+
+    const hint = document.createElement("p");
+    hint.className = "hint";
+    hint.textContent =
+      "Blocks shown in the top-right corner. Each one appears only when its own conditions pass, so the same corner can carry different things on different days. A block with no conditions is always shown. If no block qualifies, the box disappears and the clock and weather take the width back.";
+    section.appendChild(hint);
+
+    const list = document.createElement("div");
+    list.className = "sensor-list";
+
+    this._config.top_right.forEach((block, index) => {
+      list.appendChild(this._buildTopRightBlock(block, index));
+    });
+
+    section.appendChild(list);
+
+    const addButton = document.createElement("button");
+    addButton.type = "button";
+    addButton.className = "add-button";
+    addButton.textContent = "+ Add block";
+
+    addButton.addEventListener("click", () => {
+      this._updateConfig((cfg) => {
+        cfg.top_right.push({
+          type: "special_times",
+          title: "",
+          show_when: [],
+          sensors: [],
+        });
+      });
+      this._render();
+    });
+
+    section.appendChild(addButton);
+
+    return section;
+  }
+
+  _buildTopRightBlock(block, index) {
+    const row = document.createElement("div");
+    row.className = "sensor-row";
+
+    const update = (patch) => {
+      this._updateConfig((cfg) => {
+        cfg.top_right[index] = { ...cfg.top_right[index], ...patch };
+      });
+    };
+
+    const typeWrap = document.createElement("div");
+    typeWrap.className = "field";
+
+    const typeLabel = document.createElement("label");
+    typeLabel.textContent = `Block ${index + 1}`;
+
+    const typeSelect = document.createElement("select");
+    typeSelect.innerHTML = `
+      <option value="special_times">Special Times (erev / motzi / daf)</option>
+      <option value="status">Status indicators</option>
+      <option value="sensors">Custom sensors</option>
+    `;
+    typeSelect.value = block.type;
+
+    typeSelect.addEventListener("change", () => {
+      update({ type: typeSelect.value });
+      this._render();
+    });
+
+    typeWrap.append(typeLabel, typeSelect);
+    row.appendChild(typeWrap);
+
+    const titleInput = document.createElement("input");
+    titleInput.type = "text";
+    titleInput.className = "name-override";
+    titleInput.placeholder =
+      block.type === "special_times"
+        ? 'Heading (default "Special Times")'
+        : "Heading (optional)";
+    titleInput.value = block.title || "";
+    titleInput.addEventListener("change", () =>
+      update({ title: titleInput.value })
+    );
+    row.appendChild(titleInput);
+
+    if (block.type === "sensors") {
+      block.sensors.forEach((entry, sensorIndex) => {
+        row.appendChild(
+          this._buildEntityField({
+            label: `Sensor ${sensorIndex + 1}`,
+            value: entry.entity,
+            onChange: (value) => {
+              this._updateConfig((cfg) => {
+                cfg.top_right[index].sensors[sensorIndex] = {
+                  ...cfg.top_right[index].sensors[sensorIndex],
+                  entity: value,
+                };
+              });
+            },
+          })
+        );
+
+        const nameInput = document.createElement("input");
+        nameInput.type = "text";
+        nameInput.className = "name-override";
+        nameInput.placeholder = "Display name (optional)";
+        nameInput.value = entry.name || "";
+        nameInput.addEventListener("change", () => {
+          this._updateConfig((cfg) => {
+            cfg.top_right[index].sensors[sensorIndex] = {
+              ...cfg.top_right[index].sensors[sensorIndex],
+              name: nameInput.value,
+            };
+          });
+        });
+        row.appendChild(nameInput);
+      });
+
+      const addSensor = document.createElement("button");
+      addSensor.type = "button";
+      addSensor.className = "add-button";
+      addSensor.textContent = "+ Add sensor to this block";
+      addSensor.addEventListener("click", () => {
+        this._updateConfig((cfg) => {
+          cfg.top_right[index].sensors.push({
+            entity: "",
+            name: "",
+            attribute: "",
+          });
+        });
+        this._render();
+      });
+      row.appendChild(addSensor);
+    }
+
+    const condHint = document.createElement("p");
+    condHint.className = "hint";
+    condHint.textContent =
+      "Show this block when ANY of these is on. Leave empty to always show it.";
+    row.appendChild(condHint);
+
+    block.show_when.forEach((entityId, conditionIndex) => {
+      const condRow = document.createElement("div");
+      condRow.className = "field";
+
+      condRow.appendChild(
+        this._buildEntityField({
+          label: `Show when ${conditionIndex + 1}`,
+          value: entityId,
+          includeDomains: ["binary_sensor", "input_boolean", "switch", "sensor"],
+          onChange: (value) => {
+            this._updateConfig((cfg) => {
+              cfg.top_right[index].show_when[conditionIndex] = value;
+            });
+          },
+        })
+      );
+
+      const removeCondition = document.createElement("button");
+      removeCondition.type = "button";
+      removeCondition.className = "remove-button";
+      removeCondition.textContent = "✕";
+      removeCondition.title = "Remove condition";
+      removeCondition.addEventListener("click", () => {
+        this._updateConfig((cfg) => {
+          cfg.top_right[index].show_when.splice(conditionIndex, 1);
+        });
+        this._render();
+      });
+
+      condRow.appendChild(removeCondition);
+      row.appendChild(condRow);
+    });
+
+    const addCondition = document.createElement("button");
+    addCondition.type = "button";
+    addCondition.className = "add-button";
+    addCondition.textContent = "+ Add condition";
+    addCondition.addEventListener("click", () => {
+      this._updateConfig((cfg) => {
+        cfg.top_right[index].show_when.push("");
+      });
+      this._render();
+    });
+    row.appendChild(addCondition);
+
+    const removeBlock = document.createElement("button");
+    removeBlock.type = "button";
+    removeBlock.className = "remove-button";
+    removeBlock.textContent = "✕";
+    removeBlock.title = "Remove block";
+    removeBlock.addEventListener("click", () => {
+      this._updateConfig((cfg) => {
+        cfg.top_right.splice(index, 1);
+      });
+      this._render();
+    });
+    row.appendChild(removeBlock);
+
+    return row;
   }
 
   _buildLayoutSection() {
@@ -3262,6 +3873,7 @@ class HomeDisplayCardEditor extends HTMLElement {
 
     const positionSelect = document.createElement("select");
     positionSelect.innerHTML = `
+      <option value="special">Special Times box (top right)</option>
       <option value="daily_bottom">Bottom of Daily Information</option>
       <option value="daily_top">Top of Daily Information</option>
       <option value="footer">Footer bar</option>

@@ -179,6 +179,52 @@ command that silently failed shows up in red instead of looking normal.
 If `status` is empty the row collapses and the card looks exactly as it
 did before.
 
+### `top_right`
+
+The top-right box is a stack of blocks. Each one shows only when its own
+conditions pass, so the same corner can carry different things on
+different days.
+
+```yaml
+top_right:
+  # The built-in erev / motzi / daf rows, only when they matter
+  - type: special_times
+    show_when:
+      - binary_sensor.yidcal_no_melucha   # Shabbos and Yom Tov
+      - binary_sensor.yidcal_erev         # erev
+  # Indicators, always
+  - type: status
+  # Your own rows, on weekdays only
+  - type: sensors
+    title: Shul
+    show_when: []
+    sensors:
+      - entity: sensor.shul_zmanim_skver_shachris
+        name: שחרית
+```
+
+Block types:
+
+- `special_times` — the built-in erev / motzi / daf rows. Heading
+  defaults to "Special Times"; set `title` to change it.
+- `status` — the indicator chips from `status`. A visible `status` block
+  here overrides `status_position`.
+- `sensors` — your own name/value rows, same shape as the top-level
+  `sensors` list.
+
+Every block takes:
+
+- `title` — optional heading.
+- `show_when` — a list of entities. The block shows when **any** of them
+  is on; an empty list means always. An entity that is missing,
+  `unavailable`, or off counts as off.
+
+Blocks render in the order listed. If none qualify, the box disappears
+entirely and the clock and weather take the width back. If more blocks
+qualify than fit, the box clips at the bottom rather than letting them
+overlap — so keep the conditions tight enough that only what matters is
+showing at once.
+
 ### `status_position`
 
 Where the indicator row goes. One of:

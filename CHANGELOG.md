@@ -197,3 +197,21 @@ proper Lovelace custom card:
   cropped. Setting the percentage lost makes the card lay itself out
   inside the visible area.
 - Row shares always total 100, whatever `layout.zmanim` is set to.
+
+## v1.9.0
+
+- **The top-right box becomes a stack of conditional blocks** (`top_right`).
+  Each block — the built-in Special Times rows, the status indicators, or
+  your own sensor rows — shows only when its own conditions pass, so the
+  same corner can carry different things on different days. Times on
+  Shabbos and Yom Tov, something else the rest of the week.
+- Conditions are a list of entities per block: the block shows when any of
+  them is on, empty means always. A missing or unavailable entity counts
+  as off rather than as a reason to show.
+- If no block qualifies the box disappears and the clock and weather take
+  the width back. If more qualify than fit, the box clips rather than
+  letting blocks draw over each other.
+- `status_position` gains `special` as shorthand for putting the
+  indicators here; an explicit `status` block overrides it either way.
+- Existing cards are unchanged: with no `top_right` configured the box is
+  a single always-on Special Times block, exactly as before.
