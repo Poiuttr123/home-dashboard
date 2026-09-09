@@ -49,7 +49,7 @@ status:
 status_position: daily_bottom   # daily_bottom | daily_top | footer
 layout:
   zmanim: 14        # height share of the זמני היום row, out of 100
-  bottom_crop: 0    # % of the page your display cuts off the bottom
+  height: 100       # % of the available height the card uses
 forecast:
   enabled: true
   days: 5
@@ -198,19 +198,30 @@ sets this. Whichever two slots aren't in use collapse to nothing.
 - `zmanim` — how much of the card's height the זמני היום row takes, out
   of 100 (default `14`, range 6–30). Whatever it gives up goes to the
   Daily Information card below it, so the shares always total 100.
-- `bottom_crop` — percent of the page height your display cuts off at
-  the bottom (default `0`, max `40`).
+- `height` — how much of the available height the card uses, as a
+  percent (default `100`, minimum `40`). The width is unaffected.
 
-`bottom_crop` exists for screens that show less of the page than the
+Lower `height` to make the card shorter top to bottom. Everything scales
+together — type, boxes, spacing — so nothing overlaps or clips. It is
+applied with `zoom`, not by squeezing the rows: shrinking the rows alone
+leaves the `clamp()` floors on font sizes where they are, so the text
+stops shrinking, outgrows its boxes and starts overlapping.
+
+It is measured against the **window**, not the card's container. A host
+can hand the card a container taller than the window — Home Assistant in
+a DW Spectrum tile does, which is what puts a scrollbar on the page and
+leaves the footer below the fold — and a percentage of a container that
+is already too tall is still too tall.
+
+It is also the fix for a screen that shows less of the page than the
 browser renders. A DW Spectrum video-wall tile does this: the page is
-laid out at full height, the tile shows only the top of it, and the
-footer falls past the visible edge — so it looks like the footer is
-missing rather than cropped. Setting the percentage being lost makes the
-card lay itself out inside what is actually on screen. Leave it at `0`
-for a normal browser or tablet.
+laid out at full height, the tile shows only the top, and the footer
+falls past the visible edge — so it looks missing rather than cropped.
+Set `height` to the percentage actually visible. A tile showing 500px of
+a 555px render is seeing ~90%.
 
-To find the right value, measure how much of the card you can see and how
-much you expect: a tile showing 500px of a 555px render is losing ~10%.
+The older `bottom_crop` key from v1.7.0 still works and means the
+inverse (`bottom_crop: 10` is `height: 90`).
 
 ### `sensors`
 
