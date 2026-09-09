@@ -135,3 +135,16 @@ proper Lovelace custom card:
   Indicators** section in the visual editor with add/remove rows.
 - Leaving `status` empty collapses the row entirely, so existing cards are
   unchanged.
+
+## v1.4.0
+
+- **New `status_position` setting** (`daily_bottom` — the new default —
+  `daily_top`, or `footer`), with a **Position** dropdown in the editor.
+  The indicator row can now sit under the Daily Information sensors, above
+  them, or as its own card in the bottom bar.
+- **Fixes a CSS collision introduced in v1.3.0.** The new indicators used
+  `.status-dot`, which the footer's "HA Connected" pill already owned. The
+  pre-existing rule is declared later in the stylesheet, so it won its
+  unset properties — giving every indicator dot a fixed 7px size and, worse,
+  a **green glow even when off or in error**. The indicator classes are now
+  `.indicator*`, leaving the footer's own `.status` rules untouched.

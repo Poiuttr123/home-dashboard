@@ -6,7 +6,7 @@
  * default, or an uploaded image).
  */
 
-const CARD_VERSION = "1.3.0";
+const CARD_VERSION = "1.4.0";
 
 console.info(
   `%c HOME-DISPLAY-CARD %c v${CARD_VERSION} `,
@@ -134,6 +134,10 @@ function escapeHtml(value) {
   }[char]));
 }
 
+const STATUS_POSITIONS = ["daily_top", "daily_bottom", "footer"];
+
+const DEFAULT_STATUS_POSITION = "daily_bottom";
+
 // What counts as "on" for a switch, binary_sensor or input_boolean.
 const STATUS_ON_STATES = new Set([
   "on", "true", "yes", "open", "home", "active", "enabled",
@@ -187,6 +191,10 @@ export function normalizeConfig(config) {
     ? source.status.map(normalizeStatusEntry).filter(Boolean)
     : [];
 
+  const status_position = STATUS_POSITIONS.includes(source.status_position)
+    ? source.status_position
+    : DEFAULT_STATUS_POSITION;
+
   const providedPanel = source.image_panel || {};
   const image_panel = { ...DEFAULT_IMAGE_PANEL, ...providedPanel };
 
@@ -216,7 +224,7 @@ export function normalizeConfig(config) {
     ? Math.min(MAX_FORECAST_HOURS, Math.max(MIN_FORECAST_HOURS, hours))
     : DEFAULT_FORECAST.hours;
 
-  return { entities, sensors, status, image_panel, forecast };
+  return { entities, sensors, status, status_position, image_panel, forecast };
 }
 
 class HomeDisplayCard extends HTMLElement {
@@ -258,6 +266,7 @@ class HomeDisplayCard extends HTMLElement {
       entities: { ...DEFAULT_ENTITIES },
       sensors: [],
       status: [],
+      status_position: DEFAULT_STATUS_POSITION,
       image_panel: { ...DEFAULT_IMAGE_PANEL },
       forecast: { ...DEFAULT_FORECAST },
     };
@@ -952,36 +961,65 @@ class HomeDisplayCard extends HTMLElement {
 
           display: grid;
 
-          /* title | status strip | sensor grid. The status row is auto,
-             so with no status entries configured it collapses to
-             nothing and the card looks exactly as it did before. */
+          /* title | top strip | sensor grid | bottom strip. Both strip
+             rows are auto, so the unused one collapses to nothing and
+             the card looks exactly as it did before. */
           grid-template-rows:
             auto
             auto
-            1fr;
+            1fr
+            auto;
 
           gap: 6px;
 
           min-height: 0;
         }
 
-        .status-strip {
+        .indicator-strip {
           display: flex;
           flex-wrap: wrap;
 
           gap: clamp(6px, .8vh, 10px) clamp(10px, 1.4vw, 22px);
+        }
 
+        /* The divider belongs on whichever side the sensor grid is. */
+        .indicator-strip-top {
           padding-bottom: clamp(5px, .8vh, 9px);
 
           border-bottom:
             1px solid rgba(86, 172, 225, 0.18);
         }
 
-        .status-strip[hidden] {
+        .indicator-strip-bottom {
+          margin-top: clamp(4px, .7vh, 8px);
+          padding-top: clamp(5px, .8vh, 9px);
+
+          border-top:
+            1px solid rgba(86, 172, 225, 0.18);
+        }
+
+        /* In the footer the strip is its own card, so it needs the
+           padding and centring the neighbouring footer cards have, and
+           must not wrap onto a second line in that short row. */
+        .indicator-strip-footer {
+          height: 100%;
+
+          align-items: center;
+
+          flex-wrap: nowrap;
+
+          padding:
+            5px
+            clamp(12px, 1.4vw, 20px);
+
+          overflow: hidden;
+        }
+
+        .indicator-strip[hidden] {
           display: none;
         }
 
-        .status-chip {
+        .indicator {
           display: flex;
           align-items: center;
 
@@ -992,7 +1030,7 @@ class HomeDisplayCard extends HTMLElement {
           white-space: nowrap;
         }
 
-        .status-dot {
+        .indicator-dot {
           width: clamp(7px, .75vh, 10px);
           height: clamp(7px, .75vh, 10px);
 
@@ -1001,7 +1039,7 @@ class HomeDisplayCard extends HTMLElement {
           flex: none;
         }
 
-        .status-name {
+        .indicator-name {
           color: #bad1df;
 
           font-size:
@@ -1011,7 +1049,7 @@ class HomeDisplayCard extends HTMLElement {
           text-overflow: ellipsis;
         }
 
-        .status-value {
+        .indicator-value {
           font-size:
             clamp(10px, min(1.05vw, 1.7vh), 15px);
 
@@ -1020,18 +1058,18 @@ class HomeDisplayCard extends HTMLElement {
 
         /* The three states the strip can be in. Colour is the signal,
            so each one is distinct at a glance from across a room. */
-        .status-on .status-dot { background: #43d17a; }
-        .status-on .status-value { color: #43d17a; }
+        .indicator-on .indicator-dot { background: #43d17a; }
+        .indicator-on .indicator-value { color: #43d17a; }
 
-        .status-off .status-dot { background: #5c7c91; }
-        .status-off .status-value { color: #9fbdd0; }
+        .indicator-off .indicator-dot { background: #5c7c91; }
+        .indicator-off .indicator-value { color: #9fbdd0; }
 
-        .status-error .status-dot {
+        .indicator-error .indicator-dot {
           background: #ff5f56;
           box-shadow: 0 0 7px rgba(255, 95, 86, .75);
         }
-        .status-error .status-value { color: #ff6b62; }
-        .status-error .status-name { color: #ffb3ae; }
+        .indicator-error .indicator-value { color: #ff6b62; }
+        .indicator-error .indicator-name { color: #ffb3ae; }
 
         .daily-grid {
           min-height: 0;
@@ -1150,6 +1188,7 @@ class HomeDisplayCard extends HTMLElement {
 
           grid-template-columns:
             minmax(0,1fr)
+            auto
             auto;
 
           gap: 8px;
@@ -1527,14 +1566,19 @@ class HomeDisplayCard extends HTMLElement {
               </div>
 
               <div
-                class="status-strip"
-                id="statusStrip"
+                class="indicator-strip indicator-strip-top"
+                id="statusStripTop"
                 hidden></div>
 
               <div
                 class="daily-grid"
                 id="dailyGrid">
               </div>
+
+              <div
+                class="indicator-strip indicator-strip-bottom"
+                id="statusStripBottom"
+                hidden></div>
 
             </section>
 
@@ -1576,6 +1620,12 @@ class HomeDisplayCard extends HTMLElement {
               </span>
 
             </section>
+
+
+            <section
+              class="card indicator-strip indicator-strip-footer"
+              id="statusStripFooter"
+              hidden></section>
 
 
             <section class="card status">
@@ -2307,15 +2357,35 @@ class HomeDisplayCard extends HTMLElement {
   }
 
 
+  statusContainers() {
+    return {
+      daily_top: this.shadowRoot?.getElementById("statusStripTop"),
+      daily_bottom: this.shadowRoot?.getElementById("statusStripBottom"),
+      footer: this.shadowRoot?.getElementById("statusStripFooter"),
+    };
+  }
+
+
   renderStatus() {
 
-    const container =
-      this.shadowRoot?.getElementById(
-        "statusStrip"
-      );
+    const containers = this.statusContainers();
+
+    const position = this._config.status_position;
+
+    const container = containers[position];
 
 
     if (!container || !this._hass) return;
+
+
+    // Only one slot is ever populated; the other two stay empty and
+    // hidden so their grid rows and footer column collapse.
+    for (const [key, other] of Object.entries(containers)) {
+      if (key !== position && other) {
+        other.hidden = true;
+        other.innerHTML = "";
+      }
+    }
 
 
     const rows =
@@ -2325,9 +2395,12 @@ class HomeDisplayCard extends HTMLElement {
 
 
     const signature =
-      rows
-        .map(row => `${row.key}:${row.name}:${row.value}:${row.level}`)
-        .join("|");
+      [
+        position,
+        ...rows.map(
+          row => `${row.key}:${row.name}:${row.value}:${row.level}`
+        ),
+      ].join("|");
 
 
     if (signature === this._lastStatusSignature) return;
@@ -2349,15 +2422,15 @@ class HomeDisplayCard extends HTMLElement {
       rows
         .map(
           row => `
-              <div class="status-chip status-${row.level}">
+              <div class="indicator indicator-${row.level}">
 
-                <span class="status-dot"></span>
+                <span class="indicator-dot"></span>
 
-                <span class="status-name">
+                <span class="indicator-name">
                   ${escapeHtml(row.name)}
                 </span>
 
-                <span class="status-value">
+                <span class="indicator-value">
                   ${escapeHtml(row.value)}
                 </span>
 
@@ -2544,6 +2617,7 @@ class HomeDisplayCardEditor extends HTMLElement {
       entities: { ...this._config.entities },
       sensors: this._config.sensors.map(sensor => ({ ...sensor })),
       status: this._config.status.map(entry => ({ ...entry })),
+      status_position: this._config.status_position,
       image_panel: { ...this._config.image_panel },
       forecast: { ...this._config.forecast },
     };
@@ -2557,6 +2631,7 @@ class HomeDisplayCardEditor extends HTMLElement {
       entities: next.entities,
       sensors: next.sensors,
       status: next.status,
+      status_position: next.status_position,
       image_panel: next.image_panel,
       forecast: next.forecast,
     };
@@ -2821,6 +2896,29 @@ class HomeDisplayCardEditor extends HTMLElement {
     hint.textContent =
       "On/off indicators shown at the top of Daily Information: green for on, dim for off, red when something is wrong. Good for a fridge Shabbos mode switch or the mikvah.";
     section.appendChild(hint);
+
+    const positionWrap = document.createElement("div");
+    positionWrap.className = "field";
+
+    const positionLabel = document.createElement("label");
+    positionLabel.textContent = "Position";
+
+    const positionSelect = document.createElement("select");
+    positionSelect.innerHTML = `
+      <option value="daily_bottom">Bottom of Daily Information</option>
+      <option value="daily_top">Top of Daily Information</option>
+      <option value="footer">Footer bar</option>
+    `;
+    positionSelect.value = this._config.status_position;
+
+    positionSelect.addEventListener("change", () => {
+      this._updateConfig((cfg) => {
+        cfg.status_position = positionSelect.value;
+      });
+    });
+
+    positionWrap.append(positionLabel, positionSelect);
+    section.appendChild(positionWrap);
 
     const list = document.createElement("div");
     list.className = "sensor-list";

@@ -46,6 +46,7 @@ status:
   - entity: switch.100w_mikvah
     name: Mikvah
     expected: binary_sensor.mikvah_should_be_on
+status_position: daily_bottom   # daily_bottom | daily_top | footer
 forecast:
   enabled: true
   days: 5
@@ -97,8 +98,8 @@ card.
 
 ### `status`
 
-A list of on/off indicators shown as a row at the top of the **Daily
-Information** card, where the colour carries the meaning:
+A list of on/off indicators shown as a row of chips, where the colour
+carries the meaning:
 
 | Colour | Meaning |
 | --- | --- |
@@ -132,6 +133,20 @@ command that silently failed shows up in red instead of looking normal.
 
 If `status` is empty the row collapses and the card looks exactly as it
 did before.
+
+### `status_position`
+
+Where the indicator row goes. One of:
+
+- `daily_bottom` (default) — below the sensor rows in the **Daily
+  Information** card, in the space under them.
+- `daily_top` — above the sensor rows, directly under the card title.
+- `footer` — its own card in the bottom bar, between the daf yomi and
+  the connection pill. Doesn't wrap, so it suits two or three short
+  indicators rather than many.
+
+The **Position** dropdown in the editor's **Status Indicators** section
+sets this. Whichever two slots aren't in use collapse to nothing.
 
 ### `sensors`
 
