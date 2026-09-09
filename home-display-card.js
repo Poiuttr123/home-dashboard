@@ -6,7 +6,7 @@
  * default, or an uploaded image).
  */
 
-const CARD_VERSION = "1.4.0";
+const CARD_VERSION = "1.5.0";
 
 console.info(
   `%c HOME-DISPLAY-CARD %c v${CARD_VERSION} `,
@@ -148,10 +148,24 @@ const STATUS_ERROR_STATES = new Set([
   "unavailable", "unknown", "none", "error", "fault",
 ]);
 
+function normalizeStaleAfter(value) {
+  const minutes = Number.parseInt(value, 10);
+
+  return Number.isFinite(minutes) && minutes > 0 ? minutes : 0;
+}
+
 function normalizeStatusEntry(entry) {
   if (typeof entry === "string") {
     return entry
-      ? { entity: entry, name: "", on_label: "", off_label: "", expected: "" }
+      ? {
+          entity: entry,
+          name: "",
+          on_label: "",
+          off_label: "",
+          expected: "",
+          stale_after: 0,
+          stale_entity: "",
+        }
       : null;
   }
   if (entry && typeof entry === "object" && entry.entity) {
@@ -161,6 +175,8 @@ function normalizeStatusEntry(entry) {
       on_label: entry.on_label || "",
       off_label: entry.off_label || "",
       expected: entry.expected || "",
+      stale_after: normalizeStaleAfter(entry.stale_after),
+      stale_entity: entry.stale_entity || "",
     };
   }
   return null;
@@ -979,6 +995,13 @@ class HomeDisplayCard extends HTMLElement {
           display: flex;
           flex-wrap: wrap;
 
+          /* Chips must size to their own content. Without this they
+             inherit the flex default of stretch and grow to the strip's
+             full height, which the error chip's pill radius turns into
+             a large disc. */
+          align-items: center;
+          align-content: flex-start;
+
           gap: clamp(6px, .8vh, 10px) clamp(10px, 1.4vw, 22px);
         }
 
@@ -1064,12 +1087,50 @@ class HomeDisplayCard extends HTMLElement {
         .indicator-off .indicator-dot { background: #5c7c91; }
         .indicator-off .indicator-value { color: #9fbdd0; }
 
-        .indicator-error .indicator-dot {
-          background: #ff5f56;
-          box-shadow: 0 0 7px rgba(255, 95, 86, .75);
+        /* An error has to be visible from across the room, so the whole
+           chip blinks rather than just tinting the text. */
+        .indicator-error {
+          padding: 2px clamp(6px, .7vw, 10px);
+
+          border-radius: 999px;
+
+          background: rgba(255, 45, 32, .16);
+
+          box-shadow:
+            inset 0 0 0 1px rgba(255, 45, 32, .55);
+
+          animation:
+            indicator-blink 1.1s steps(1, end) infinite;
         }
-        .indicator-error .indicator-value { color: #ff6b62; }
-        .indicator-error .indicator-name { color: #ffb3ae; }
+
+        .indicator-error .indicator-dot {
+          background: #ff2d20;
+
+          box-shadow:
+            0 0 10px rgba(255, 45, 32, .95),
+            0 0 3px rgba(255, 255, 255, .6);
+        }
+
+        .indicator-error .indicator-value {
+          color: #ff5247;
+          font-weight: 800;
+        }
+
+        .indicator-error .indicator-name { color: #ffc4c0; }
+
+        @keyframes indicator-blink {
+          0%, 54%   { opacity: 1; }
+          55%, 100% { opacity: .22; }
+        }
+
+        /* A permanently flashing element is genuinely painful for some
+           people, so honour the system setting and stay bright-but-still. */
+        @media (prefers-reduced-motion: reduce) {
+          .indicator-error {
+            animation: none;
+            opacity: 1;
+          }
+        }
 
         .daily-grid {
           min-height: 0;
@@ -1709,6 +1770,13 @@ class HomeDisplayCard extends HTMLElement {
           }
         )
       );
+
+      // Staleness grows with the clock, not with incoming state, and a
+      // dead feed means no state arrives to trigger a redraw. The
+      // signature check makes this free when nothing has changed.
+      if (this._hass) {
+        this.renderStatus();
+      }
     };
 
     updateClock();
@@ -2279,6 +2347,43 @@ class HomeDisplayCard extends HTMLElement {
      card cannot vouch for the value.
      ========================================================== */
 
+  // Minutes since Home Assistant last wrote this entity's state at all
+  // (last_reported ticks on every write, changed or not), so a feed that
+  // has gone quiet is visible even though the old value is still there.
+  statusAgeMinutes(state) {
+
+    const stamp =
+      state?.last_reported ||
+      state?.last_updated ||
+      state?.last_changed;
+
+
+    if (!stamp) return null;
+
+
+    const at = new Date(stamp).getTime();
+
+    if (Number.isNaN(at)) return null;
+
+
+    return (Date.now() - at) / 60000;
+  }
+
+
+  formatAge(minutes) {
+
+    const total = Math.floor(minutes);
+
+    if (total < 60) return `${total}m`;
+
+
+    const hours = Math.floor(total / 60);
+    const rest = total % 60;
+
+    return rest ? `${hours}h${rest}m` : `${hours}h`;
+  }
+
+
   statusRowFor(entry) {
 
     if (!entry.entity) return null;
@@ -2312,6 +2417,32 @@ class HomeDisplayCard extends HTMLElement {
         value: raw === "unavailable" ? "Unavailable" : "Error",
         level: "error",
       };
+    }
+
+
+    // A device can stop reporting without ever going "unavailable" —
+    // the integration keeps serving the last value it saw. That reads as
+    // a healthy Off, which is the most dangerous way for this to fail,
+    // so an entity that has gone quiet is called out as offline.
+    if (entry.stale_after) {
+
+      // The freshest entity on a device makes a better heartbeat than a
+      // switch that legitimately sits unchanged for hours.
+      const watched =
+        this.getEntity(entry.stale_entity) ||
+        this.getEntity(entry.entity);
+
+      const age = this.statusAgeMinutes(watched);
+
+
+      if (age !== null && age > entry.stale_after) {
+        return {
+          key: entry.entity,
+          name,
+          value: `Offline (${this.formatAge(age)})`,
+          level: "error",
+        };
+      }
     }
 
 
@@ -3008,6 +3139,40 @@ class HomeDisplayCardEditor extends HTMLElement {
       onChange: (value) => update({ expected: value }),
     });
 
+    const staleHint = document.createElement("p");
+    staleHint.className = "hint";
+    staleHint.textContent =
+      "Optional: minutes of silence before this counts as offline. A device can stop reporting without going 'unavailable' — the old value just sits there looking fine. Leave blank to skip the check.";
+
+    const staleWrap = document.createElement("div");
+    staleWrap.className = "field";
+
+    const staleLabel = document.createElement("label");
+    staleLabel.textContent = "Offline after (minutes)";
+
+    const staleInput = document.createElement("input");
+    staleInput.type = "number";
+    staleInput.min = "1";
+    staleInput.placeholder = "e.g. 30";
+    staleInput.value = entry.stale_after ? String(entry.stale_after) : "";
+
+    staleInput.addEventListener("change", () =>
+      update({ stale_after: staleInput.value })
+    );
+
+    staleWrap.append(staleLabel, staleInput);
+
+    const heartbeatHint = document.createElement("p");
+    heartbeatHint.className = "hint";
+    heartbeatHint.textContent =
+      "Optional: check that entity's freshness instead. Pick the busiest entity on the same device — a switch can sit unchanged for hours legitimately, so it makes a poor heartbeat.";
+
+    const heartbeatPicker = this._buildEntityField({
+      label: "Heartbeat entity (optional)",
+      value: entry.stale_entity,
+      onChange: (value) => update({ stale_entity: value }),
+    });
+
     const removeButton = document.createElement("button");
     removeButton.type = "button";
     removeButton.className = "remove-button";
@@ -3028,6 +3193,10 @@ class HomeDisplayCardEditor extends HTMLElement {
       offInput,
       expectedHint,
       expectedPicker,
+      staleHint,
+      staleWrap,
+      heartbeatHint,
+      heartbeatPicker,
       removeButton
     );
 

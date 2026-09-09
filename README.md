@@ -114,8 +114,15 @@ Each entry is either an entity ID string, or an object:
 - `on_label` / `off_label` — optional text for each state (default `On`
   and `Off`). Use `Yes`/`No` where that reads better.
 - `expected` — optional entity describing what this one *should* be.
+- `stale_after` — optional minutes of silence before the device counts as
+  offline. Omit to skip the check.
+- `stale_entity` — optional entity to check the freshness of instead of
+  this one.
 
-A row turns red in three cases:
+A red row **blinks brightly** so it can't be missed from across a room.
+(Under the system's reduced-motion setting it stays bright but still.)
+
+A row turns red in four cases:
 
 1. **Unreachable** — the entity is `unavailable`, `unknown`, or has no
    state, so the card can't vouch for what it shows. Displays
@@ -123,9 +130,33 @@ A row turns red in three cases:
 2. **Missing** — no such entity, usually a typo or a removed device.
    Displays `Missing`. This is deliberately not shown as "Off", which
    would be a confident lie.
-3. **Disagreement** — `expected` is set and the two entities disagree,
+3. **Offline** — `stale_after` is set and nothing has been written for
+   that entity in that long. Displays `Offline (3h21m)`.
+4. **Disagreement** — `expected` is set and the two entities disagree,
    i.e. the device didn't do what it was told. Displays the real state
    plus what was wanted, e.g. `Off (want On)`.
+
+Case 3 exists because a cloud integration can stop delivering updates
+without ever marking anything `unavailable` — it keeps serving the last
+value it saw, which renders as a calm, healthy-looking `Off`. That is the
+most dangerous way for an indicator like this to fail.
+
+Pick `stale_entity` carefully: a switch can legitimately sit unchanged for
+hours, so it makes a poor heartbeat. The busiest entity on the same device
+(a power or energy sensor) is a much better one. For example, watching a
+fridge's Sabbath switch but checking its power sensor's freshness:
+
+```yaml
+- entity: switch.refrigerator_sabbath_mode
+  name: Fridge Shabbos
+  on_label: "Yes"
+  off_label: "No"
+  stale_after: 30
+  stale_entity: sensor.refrigerator_power
+```
+
+Offline outranks disagreement: if the device can't be seen, what it
+*should* be is beside the point.
 
 That third case is the useful one for anything driven by an automation:
 pair the switch with the sensor that says whether it should be on, and a

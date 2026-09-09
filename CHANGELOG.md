@@ -148,3 +148,26 @@ proper Lovelace custom card:
   unset properties — giving every indicator dot a fixed 7px size and, worse,
   a **green glow even when off or in error**. The indicator classes are now
   `.indicator*`, leaving the footer's own `.status` rules untouched.
+
+## v1.5.0
+
+- **Error rows now blink bright red** instead of just tinting the text, so
+  a problem is visible from across the room. Honours
+  `prefers-reduced-motion` by staying bright but still.
+- **New offline detection** (`stale_after`, in minutes, plus an optional
+  `stale_entity` heartbeat). A cloud integration can stop delivering
+  updates without ever marking anything `unavailable` — it keeps serving
+  the last value it saw, so a stalled feed renders as a calm, healthy
+  `Off`. That is the worst way for a Shabbos indicator to fail, and it is
+  now caught and shown as `Offline (3h21m)`.
+- `stale_entity` exists because a switch can legitimately sit unchanged
+  for hours and makes a poor heartbeat; the busiest entity on the same
+  device (typically a power sensor) is a far better one.
+- Offline outranks a disagreement: if the device can't be seen, what it
+  should be is beside the point.
+- The staleness display is driven off the existing one-second clock, so
+  the age keeps counting even when no state arrives to trigger a redraw —
+  which is precisely the case when a feed has died.
+- Fixes indicator chips stretching to the full height of their row. They
+  inherited the flex default of `stretch`; harmless until the new pill
+  radius turned it into large red discs.
