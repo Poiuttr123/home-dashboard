@@ -6,7 +6,7 @@
  * default, or an uploaded image).
  */
 
-const CARD_VERSION = "1.2.1";
+const CARD_VERSION = "1.3.0";
 
 console.info(
   `%c HOME-DISPLAY-CARD %c v${CARD_VERSION} `,
@@ -134,6 +134,34 @@ function escapeHtml(value) {
   }[char]));
 }
 
+// What counts as "on" for a switch, binary_sensor or input_boolean.
+const STATUS_ON_STATES = new Set([
+  "on", "true", "yes", "open", "home", "active", "enabled",
+]);
+
+// States that mean the card cannot trust the value at all.
+const STATUS_ERROR_STATES = new Set([
+  "unavailable", "unknown", "none", "error", "fault",
+]);
+
+function normalizeStatusEntry(entry) {
+  if (typeof entry === "string") {
+    return entry
+      ? { entity: entry, name: "", on_label: "", off_label: "", expected: "" }
+      : null;
+  }
+  if (entry && typeof entry === "object" && entry.entity) {
+    return {
+      entity: entry.entity,
+      name: entry.name || "",
+      on_label: entry.on_label || "",
+      off_label: entry.off_label || "",
+      expected: entry.expected || "",
+    };
+  }
+  return null;
+}
+
 function normalizeSensorEntry(entry) {
   if (typeof entry === "string") {
     return entry ? { entity: entry, name: "", attribute: "" } : null;
@@ -153,6 +181,10 @@ export function normalizeConfig(config) {
   const entities = { ...DEFAULT_ENTITIES, ...(source.entities || {}) };
   const sensors = Array.isArray(source.sensors)
     ? source.sensors.map(normalizeSensorEntry).filter(Boolean)
+    : [];
+
+  const status = Array.isArray(source.status)
+    ? source.status.map(normalizeStatusEntry).filter(Boolean)
     : [];
 
   const providedPanel = source.image_panel || {};
@@ -184,7 +216,7 @@ export function normalizeConfig(config) {
     ? Math.min(MAX_FORECAST_HOURS, Math.max(MIN_FORECAST_HOURS, hours))
     : DEFAULT_FORECAST.hours;
 
-  return { entities, sensors, image_panel, forecast };
+  return { entities, sensors, status, image_panel, forecast };
 }
 
 class HomeDisplayCard extends HTMLElement {
@@ -195,6 +227,7 @@ class HomeDisplayCard extends HTMLElement {
     this._config = normalizeConfig({});
     this._clockTimer = null;
     this._lastSheetSignature = "";
+    this._lastStatusSignature = "";
     this._lastCustomCode = null;
 
     // One independent subscription per forecast type.
@@ -224,6 +257,7 @@ class HomeDisplayCard extends HTMLElement {
       type: "custom:home-display-card",
       entities: { ...DEFAULT_ENTITIES },
       sensors: [],
+      status: [],
       image_panel: { ...DEFAULT_IMAGE_PANEL },
       forecast: { ...DEFAULT_FORECAST },
     };
@@ -918,7 +952,11 @@ class HomeDisplayCard extends HTMLElement {
 
           display: grid;
 
+          /* title | status strip | sensor grid. The status row is auto,
+             so with no status entries configured it collapses to
+             nothing and the card looks exactly as it did before. */
           grid-template-rows:
+            auto
             auto
             1fr;
 
@@ -926,6 +964,74 @@ class HomeDisplayCard extends HTMLElement {
 
           min-height: 0;
         }
+
+        .status-strip {
+          display: flex;
+          flex-wrap: wrap;
+
+          gap: clamp(6px, .8vh, 10px) clamp(10px, 1.4vw, 22px);
+
+          padding-bottom: clamp(5px, .8vh, 9px);
+
+          border-bottom:
+            1px solid rgba(86, 172, 225, 0.18);
+        }
+
+        .status-strip[hidden] {
+          display: none;
+        }
+
+        .status-chip {
+          display: flex;
+          align-items: center;
+
+          gap: 7px;
+
+          min-width: 0;
+
+          white-space: nowrap;
+        }
+
+        .status-dot {
+          width: clamp(7px, .75vh, 10px);
+          height: clamp(7px, .75vh, 10px);
+
+          border-radius: 50%;
+
+          flex: none;
+        }
+
+        .status-name {
+          color: #bad1df;
+
+          font-size:
+            clamp(9px, min(1vw, 1.55vh), 14px);
+
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .status-value {
+          font-size:
+            clamp(10px, min(1.05vw, 1.7vh), 15px);
+
+          font-weight: 700;
+        }
+
+        /* The three states the strip can be in. Colour is the signal,
+           so each one is distinct at a glance from across a room. */
+        .status-on .status-dot { background: #43d17a; }
+        .status-on .status-value { color: #43d17a; }
+
+        .status-off .status-dot { background: #5c7c91; }
+        .status-off .status-value { color: #9fbdd0; }
+
+        .status-error .status-dot {
+          background: #ff5f56;
+          box-shadow: 0 0 7px rgba(255, 95, 86, .75);
+        }
+        .status-error .status-value { color: #ff6b62; }
+        .status-error .status-name { color: #ffb3ae; }
 
         .daily-grid {
           min-height: 0;
@@ -1421,6 +1527,11 @@ class HomeDisplayCard extends HTMLElement {
               </div>
 
               <div
+                class="status-strip"
+                id="statusStrip"
+                hidden></div>
+
+              <div
                 class="daily-grid"
                 id="dailyGrid">
               </div>
@@ -1683,6 +1794,8 @@ class HomeDisplayCard extends HTMLElement {
     /* ==========================================================
        SHEET DATA
        ========================================================== */
+
+    this.renderStatus();
 
     this.renderSheetData();
 
@@ -2108,6 +2221,153 @@ class HomeDisplayCard extends HTMLElement {
   }
 
 
+  /* ==========================================================
+     STATUS
+
+     Small on/off indicators (fridge Shabbos mode, mikvah, ...) where
+     the colour carries the meaning: green on, dim off, red when the
+     card cannot vouch for the value.
+     ========================================================== */
+
+  statusRowFor(entry) {
+
+    if (!entry.entity) return null;
+
+
+    const onLabel = entry.on_label || "On";
+    const offLabel = entry.off_label || "Off";
+
+    const state = this.getEntity(entry.entity);
+
+    const name =
+      entry.name ||
+      state?.attributes?.friendly_name ||
+      entry.entity;
+
+
+    // No such entity: almost always a typo or a removed device, and
+    // silently showing "Off" for it would be a lie.
+    if (!state) {
+      return { key: entry.entity, name, value: "Missing", level: "error" };
+    }
+
+
+    const raw = String(state.state ?? "").trim().toLowerCase();
+
+
+    if (!raw || STATUS_ERROR_STATES.has(raw)) {
+      return {
+        key: entry.entity,
+        name,
+        value: raw === "unavailable" ? "Unavailable" : "Error",
+        level: "error",
+      };
+    }
+
+
+    const isOn = STATUS_ON_STATES.has(raw);
+    const label = isOn ? onLabel : offLabel;
+
+
+    // With an "expected" entity configured, the real failure is the
+    // device disagreeing with what it was told to do — the switch that
+    // never took. That reads as an error even though both entities are
+    // individually healthy.
+    if (entry.expected) {
+
+      const want = this.getEntity(entry.expected);
+
+      const wantRaw =
+        String(want?.state ?? "").trim().toLowerCase();
+
+
+      if (want && wantRaw && !STATUS_ERROR_STATES.has(wantRaw)) {
+
+        const wantOn = STATUS_ON_STATES.has(wantRaw);
+
+
+        if (wantOn !== isOn) {
+          return {
+            key: entry.entity,
+            name,
+            value: `${label} (want ${wantOn ? onLabel : offLabel})`,
+            level: "error",
+          };
+        }
+      }
+    }
+
+
+    return {
+      key: entry.entity,
+      name,
+      value: label,
+      level: isOn ? "on" : "off",
+    };
+  }
+
+
+  renderStatus() {
+
+    const container =
+      this.shadowRoot?.getElementById(
+        "statusStrip"
+      );
+
+
+    if (!container || !this._hass) return;
+
+
+    const rows =
+      this._config.status
+        .map(entry => this.statusRowFor(entry))
+        .filter(Boolean);
+
+
+    const signature =
+      rows
+        .map(row => `${row.key}:${row.name}:${row.value}:${row.level}`)
+        .join("|");
+
+
+    if (signature === this._lastStatusSignature) return;
+
+
+    this._lastStatusSignature = signature;
+
+
+    container.hidden = rows.length === 0;
+
+
+    if (!rows.length) {
+      container.innerHTML = "";
+      return;
+    }
+
+
+    container.innerHTML =
+      rows
+        .map(
+          row => `
+              <div class="status-chip status-${row.level}">
+
+                <span class="status-dot"></span>
+
+                <span class="status-name">
+                  ${escapeHtml(row.name)}
+                </span>
+
+                <span class="status-value">
+                  ${escapeHtml(row.value)}
+                </span>
+
+              </div>
+            `
+        )
+        .join("");
+  }
+
+
   renderSheetData() {
 
     const container =
@@ -2283,6 +2543,7 @@ class HomeDisplayCardEditor extends HTMLElement {
     const next = {
       entities: { ...this._config.entities },
       sensors: this._config.sensors.map(sensor => ({ ...sensor })),
+      status: this._config.status.map(entry => ({ ...entry })),
       image_panel: { ...this._config.image_panel },
       forecast: { ...this._config.forecast },
     };
@@ -2295,6 +2556,7 @@ class HomeDisplayCardEditor extends HTMLElement {
       ...this._rawConfig,
       entities: next.entities,
       sensors: next.sensors,
+      status: next.status,
       image_panel: next.image_panel,
       forecast: next.forecast,
     };
@@ -2465,6 +2727,7 @@ class HomeDisplayCardEditor extends HTMLElement {
     // built first (and appear first) even if an entity picker below them
     // fails to build for some reason.
     const sectionBuilders = [
+      () => this._buildStatusSection(),
       () => this._buildSensorSection(),
       () => this._buildForecastSection(),
       () => this._buildImagePanelSection(),
@@ -2543,6 +2806,134 @@ class HomeDisplayCardEditor extends HTMLElement {
     }
 
     return wrap;
+  }
+
+  _buildStatusSection() {
+    const section = document.createElement("div");
+    section.className = "section";
+
+    const title = document.createElement("h3");
+    title.textContent = "Status Indicators";
+    section.appendChild(title);
+
+    const hint = document.createElement("p");
+    hint.className = "hint";
+    hint.textContent =
+      "On/off indicators shown at the top of Daily Information: green for on, dim for off, red when something is wrong. Good for a fridge Shabbos mode switch or the mikvah.";
+    section.appendChild(hint);
+
+    const list = document.createElement("div");
+    list.className = "sensor-list";
+
+    this._config.status.forEach((entry, index) => {
+      list.appendChild(this._buildStatusRow(entry, index));
+    });
+
+    section.appendChild(list);
+
+    const addButton = document.createElement("button");
+    addButton.type = "button";
+    addButton.className = "add-button";
+    addButton.textContent = "+ Add Status";
+
+    addButton.addEventListener("click", () => {
+      this._updateConfig((cfg) => {
+        cfg.status.push({
+          entity: "",
+          name: "",
+          on_label: "",
+          off_label: "",
+          expected: "",
+        });
+      });
+      this._render();
+    });
+
+    section.appendChild(addButton);
+
+    return section;
+  }
+
+  _buildStatusRow(entry, index) {
+    const row = document.createElement("div");
+    row.className = "sensor-row";
+
+    const update = (patch) => {
+      this._updateConfig((cfg) => {
+        cfg.status[index] = { ...cfg.status[index], ...patch };
+      });
+    };
+
+    const picker = this._buildEntityField({
+      label: `Status ${index + 1}`,
+      value: entry.entity,
+      includeDomains: ["switch", "binary_sensor", "input_boolean", "light", "sensor"],
+      onChange: (value) => update({ entity: value }),
+    });
+
+    const nameInput = document.createElement("input");
+    nameInput.type = "text";
+    nameInput.className = "name-override";
+    nameInput.placeholder = "Display name (optional)";
+    nameInput.value = entry.name || "";
+    nameInput.addEventListener("change", () =>
+      update({ name: nameInput.value })
+    );
+
+    const onInput = document.createElement("input");
+    onInput.type = "text";
+    onInput.className = "name-override";
+    onInput.placeholder = 'Label when on (default "On")';
+    onInput.value = entry.on_label || "";
+    onInput.addEventListener("change", () =>
+      update({ on_label: onInput.value })
+    );
+
+    const offInput = document.createElement("input");
+    offInput.type = "text";
+    offInput.className = "name-override";
+    offInput.placeholder = 'Label when off (default "Off")';
+    offInput.value = entry.off_label || "";
+    offInput.addEventListener("change", () =>
+      update({ off_label: offInput.value })
+    );
+
+    const expectedHint = document.createElement("p");
+    expectedHint.className = "hint";
+    expectedHint.textContent =
+      "Optional: an entity saying what this SHOULD be. If the two disagree, the row turns red — that's how a switch that never took gets caught.";
+
+    const expectedPicker = this._buildEntityField({
+      label: "Should match (optional)",
+      value: entry.expected,
+      includeDomains: ["binary_sensor", "input_boolean", "switch", "sensor"],
+      onChange: (value) => update({ expected: value }),
+    });
+
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.className = "remove-button";
+    removeButton.textContent = "✕";
+    removeButton.title = "Remove status";
+
+    removeButton.addEventListener("click", () => {
+      this._updateConfig((cfg) => {
+        cfg.status.splice(index, 1);
+      });
+      this._render();
+    });
+
+    row.append(
+      picker,
+      nameInput,
+      onInput,
+      offInput,
+      expectedHint,
+      expectedPicker,
+      removeButton
+    );
+
+    return row;
   }
 
   _buildSensorSection() {

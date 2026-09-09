@@ -117,3 +117,21 @@ proper Lovelace custom card:
   the daily strip below it already did.
 - `forecast.hours` now goes up to `12` (was `8`), so a wide card can be
   filled with columns rather than spacing.
+
+## v1.3.0
+
+- **New `status` list**: colour-coded on/off indicators across the top of
+  the Daily Information card — green on, dim off, red wrong. Built for
+  "is the fridge in Shabbos mode" and "is the mikvah on", but it takes any
+  switch, `binary_sensor` or `input_boolean`.
+- Three separate things turn a row red, because they mean different
+  things: the entity is unavailable (`Unavailable`), the entity doesn't
+  exist (`Missing` — never silently rendered as "Off"), or an optional
+  `expected` entity disagrees with the real one (`Off (want On)`).
+- That last case catches the failure that otherwise looks like success: a
+  switch that was told to turn on and didn't. Set `expected` to the sensor
+  holding the intent and the mismatch shows up in red.
+- Per-entry `name`, `on_label` and `off_label`, plus a **Status
+  Indicators** section in the visual editor with add/remove rows.
+- Leaving `status` empty collapses the row entirely, so existing cards are
+  unchanged.

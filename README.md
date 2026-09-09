@@ -38,6 +38,14 @@ entities:
   maariv: sensor.yidcal_zman_maariv_rt
   erev: sensor.yidcal_zman_erev
   motzi: sensor.yidcal_zman_motzi
+status:
+  - entity: switch.refrigerator_sabbath_mode
+    name: Fridge Shabbos
+    on_label: "Yes"
+    off_label: "No"
+  - entity: switch.100w_mikvah
+    name: Mikvah
+    expected: binary_sensor.mikvah_should_be_on
 forecast:
   enabled: true
   days: 5
@@ -86,6 +94,44 @@ offering only one kind still shows that strip and quietly hides the other.
 Fewer columns are drawn if the entity provides fewer than requested, and a
 strip with no data at all stays hidden without affecting the rest of the
 card.
+
+### `status`
+
+A list of on/off indicators shown as a row at the top of the **Daily
+Information** card, where the colour carries the meaning:
+
+| Colour | Meaning |
+| --- | --- |
+| Green | On |
+| Dim blue-grey | Off |
+| Red | Something is wrong — see below |
+
+Each entry is either an entity ID string, or an object:
+
+- `entity` — the switch, `binary_sensor` or `input_boolean` to read.
+- `name` — optional label (defaults to the entity's friendly name).
+- `on_label` / `off_label` — optional text for each state (default `On`
+  and `Off`). Use `Yes`/`No` where that reads better.
+- `expected` — optional entity describing what this one *should* be.
+
+A row turns red in three cases:
+
+1. **Unreachable** — the entity is `unavailable`, `unknown`, or has no
+   state, so the card can't vouch for what it shows. Displays
+   `Unavailable`.
+2. **Missing** — no such entity, usually a typo or a removed device.
+   Displays `Missing`. This is deliberately not shown as "Off", which
+   would be a confident lie.
+3. **Disagreement** — `expected` is set and the two entities disagree,
+   i.e. the device didn't do what it was told. Displays the real state
+   plus what was wanted, e.g. `Off (want On)`.
+
+That third case is the useful one for anything driven by an automation:
+pair the switch with the sensor that says whether it should be on, and a
+command that silently failed shows up in red instead of looking normal.
+
+If `status` is empty the row collapses and the card looks exactly as it
+did before.
 
 ### `sensors`
 
