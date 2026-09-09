@@ -47,6 +47,9 @@ status:
     name: Mikvah
     expected: binary_sensor.mikvah_should_be_on
 status_position: daily_bottom   # daily_bottom | daily_top | footer
+layout:
+  zmanim: 14        # height share of the זמני היום row, out of 100
+  bottom_crop: 0    # % of the page your display cuts off the bottom
 forecast:
   enabled: true
   days: 5
@@ -189,6 +192,25 @@ Where the indicator row goes. One of:
 
 The **Position** dropdown in the editor's **Status Indicators** section
 sets this. Whichever two slots aren't in use collapse to nothing.
+
+### `layout`
+
+- `zmanim` — how much of the card's height the זמני היום row takes, out
+  of 100 (default `14`, range 6–30). Whatever it gives up goes to the
+  Daily Information card below it, so the shares always total 100.
+- `bottom_crop` — percent of the page height your display cuts off at
+  the bottom (default `0`, max `40`).
+
+`bottom_crop` exists for screens that show less of the page than the
+browser renders. A DW Spectrum video-wall tile does this: the page is
+laid out at full height, the tile shows only the top of it, and the
+footer falls past the visible edge — so it looks like the footer is
+missing rather than cropped. Setting the percentage being lost makes the
+card lay itself out inside what is actually on screen. Leave it at `0`
+for a normal browser or tablet.
+
+To find the right value, measure how much of the card you can see and how
+much you expect: a tile showing 500px of a 555px render is losing ~10%.
 
 ### `sensors`
 

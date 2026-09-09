@@ -184,3 +184,16 @@ proper Lovelace custom card:
 - With no earlier good value to fall back on, it still alarms
   immediately rather than inventing a reassuring one. `grace: 0` restores
   the old alarm-at-once behaviour.
+
+## v1.7.0
+
+- **The זמני היום row is shorter.** Its height share drops from 20 to 14
+  out of 100, and the space goes to Daily Information. Adjustable via
+  `layout.zmanim` (6–30) and a **Layout** section in the editor.
+- **New `layout.bottom_crop`** for displays that show less of the page
+  than the browser renders. On a DW Spectrum video-wall tile the page is
+  laid out at full height while the tile shows only the top, so the
+  footer lands past the visible edge and looks missing rather than
+  cropped. Setting the percentage lost makes the card lay itself out
+  inside the visible area.
+- Row shares always total 100, whatever `layout.zmanim` is set to.

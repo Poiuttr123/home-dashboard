@@ -6,7 +6,7 @@
  * default, or an uploaded image).
  */
 
-const CARD_VERSION = "1.6.0";
+const CARD_VERSION = "1.7.0";
 
 console.info(
   `%c HOME-DISPLAY-CARD %c v${CARD_VERSION} `,
@@ -134,6 +134,38 @@ function escapeHtml(value) {
   }[char]));
 }
 
+// Row shares of the dashboard grid. They must total 100, so whatever the
+// zmanim row gives up is handed to Daily Information — the row with slack.
+const LAYOUT_TOP_FR = 28;
+const LAYOUT_FOOTER_FR = 9;
+const LAYOUT_ZMANIM_BASE = 20;
+const LAYOUT_DAILY_BASE = 43;
+
+const DEFAULT_LAYOUT = {
+  zmanim: 14,
+  bottom_crop: 0,
+};
+
+const MIN_ZMANIM_FR = 6;
+const MAX_ZMANIM_FR = 30;
+const MAX_BOTTOM_CROP = 40;
+
+function normalizeLayout(source) {
+  const provided = source || {};
+
+  const zmanim = Number.parseInt(provided.zmanim, 10);
+  const crop = Number.parseInt(provided.bottom_crop, 10);
+
+  return {
+    zmanim: Number.isFinite(zmanim)
+      ? Math.min(MAX_ZMANIM_FR, Math.max(MIN_ZMANIM_FR, zmanim))
+      : DEFAULT_LAYOUT.zmanim,
+    bottom_crop: Number.isFinite(crop)
+      ? Math.min(MAX_BOTTOM_CROP, Math.max(0, crop))
+      : DEFAULT_LAYOUT.bottom_crop,
+  };
+}
+
 const STATUS_POSITIONS = ["daily_top", "daily_bottom", "footer"];
 
 const DEFAULT_STATUS_POSITION = "daily_bottom";
@@ -259,7 +291,17 @@ export function normalizeConfig(config) {
     ? Math.min(MAX_FORECAST_HOURS, Math.max(MIN_FORECAST_HOURS, hours))
     : DEFAULT_FORECAST.hours;
 
-  return { entities, sensors, status, status_position, image_panel, forecast };
+  const layout = normalizeLayout(source.layout);
+
+  return {
+    entities,
+    sensors,
+    status,
+    status_position,
+    image_panel,
+    forecast,
+    layout,
+  };
 }
 
 class HomeDisplayCard extends HTMLElement {
@@ -304,6 +346,7 @@ class HomeDisplayCard extends HTMLElement {
       sensors: [],
       status: [],
       status_position: DEFAULT_STATUS_POSITION,
+      layout: { ...DEFAULT_LAYOUT },
       image_panel: { ...DEFAULT_IMAGE_PANEL },
       forecast: { ...DEFAULT_FORECAST },
     };
@@ -1934,6 +1977,8 @@ class HomeDisplayCard extends HTMLElement {
        SHEET DATA
        ========================================================== */
 
+    this.applyLayout();
+
     this.renderStatus();
 
     this.renderSheetData();
@@ -2569,6 +2614,43 @@ class HomeDisplayCard extends HTMLElement {
   }
 
 
+  /* ==========================================================
+     LAYOUT
+
+     Some hosts (a DW Spectrum video-wall tile, for one) render the
+     page taller than the area they actually display, so the footer
+     falls below the visible edge. bottom_crop shrinks the page by
+     that percentage so everything lands inside what is on screen.
+     ========================================================== */
+
+  applyLayout() {
+
+    const page = this.shadowRoot?.querySelector(".page");
+    const dashboard = this.shadowRoot?.querySelector(".dashboard");
+
+
+    if (!page || !dashboard) return;
+
+
+    const { zmanim, bottom_crop } = this._config.layout;
+
+    const daily =
+      LAYOUT_DAILY_BASE + (LAYOUT_ZMANIM_BASE - zmanim);
+
+
+    dashboard.style.gridTemplateRows =
+      `minmax(0, ${LAYOUT_TOP_FR}fr)` +
+      ` minmax(0, ${zmanim}fr)` +
+      ` minmax(0, ${daily}fr)` +
+      ` minmax(0, ${LAYOUT_FOOTER_FR}fr)`;
+
+
+    page.style.height = bottom_crop
+      ? `${100 - bottom_crop}%`
+      : "";
+  }
+
+
   renderStatus() {
 
     const containers = this.statusContainers();
@@ -2821,6 +2903,7 @@ class HomeDisplayCardEditor extends HTMLElement {
       sensors: this._config.sensors.map(sensor => ({ ...sensor })),
       status: this._config.status.map(entry => ({ ...entry })),
       status_position: this._config.status_position,
+      layout: { ...this._config.layout },
       image_panel: { ...this._config.image_panel },
       forecast: { ...this._config.forecast },
     };
@@ -2835,6 +2918,7 @@ class HomeDisplayCardEditor extends HTMLElement {
       sensors: next.sensors,
       status: next.status,
       status_position: next.status_position,
+      layout: next.layout,
       image_panel: next.image_panel,
       forecast: next.forecast,
     };
@@ -3009,6 +3093,9 @@ class HomeDisplayCardEditor extends HTMLElement {
       () => this._buildSensorSection(),
       () => this._buildForecastSection(),
       () => this._buildImagePanelSection(),
+      // Layout is set once for a given screen, so it sits below the
+      // sections that get edited regularly.
+      () => this._buildLayoutSection(),
       ...ENTITY_SECTIONS.map((section) => () => this._buildEntitySection(section)),
     ];
 
@@ -3084,6 +3171,73 @@ class HomeDisplayCardEditor extends HTMLElement {
     }
 
     return wrap;
+  }
+
+  _buildLayoutSection() {
+    const section = document.createElement("div");
+    section.className = "section";
+
+    const title = document.createElement("h3");
+    title.textContent = "Layout";
+    section.appendChild(title);
+
+    const numberField = ({ label, hint, value, min, max, placeholder, key }) => {
+      const hintEl = document.createElement("p");
+      hintEl.className = "hint";
+      hintEl.textContent = hint;
+
+      const wrap = document.createElement("div");
+      wrap.className = "field";
+
+      const labelEl = document.createElement("label");
+      labelEl.textContent = label;
+
+      const input = document.createElement("input");
+      input.type = "number";
+      input.min = String(min);
+      input.max = String(max);
+      input.placeholder = placeholder;
+      input.value = String(value);
+
+      input.addEventListener("change", () => {
+        this._updateConfig((cfg) => {
+          cfg.layout = { ...cfg.layout, [key]: input.value };
+        });
+      });
+
+      wrap.append(labelEl, input);
+
+      const holder = document.createElement("div");
+      holder.append(hintEl, wrap);
+
+      return holder;
+    };
+
+    section.appendChild(
+      numberField({
+        label: "Zmanim row height",
+        hint: "How much of the card's height the זמני היום row takes, out of 100 (default 14). Whatever it gives up goes to Daily Information.",
+        value: this._config.layout.zmanim,
+        min: MIN_ZMANIM_FR,
+        max: MAX_ZMANIM_FR,
+        placeholder: "14",
+        key: "zmanim",
+      })
+    );
+
+    section.appendChild(
+      numberField({
+        label: "Bottom cut off by the display (%)",
+        hint: "For screens that show less of the page than the browser renders — a DW Spectrum video-wall tile, for example — which cuts the footer off the bottom. Set the percentage being lost and the card lays itself out inside what is actually visible. 0 for a normal browser.",
+        value: this._config.layout.bottom_crop,
+        min: 0,
+        max: MAX_BOTTOM_CROP,
+        placeholder: "0",
+        key: "bottom_crop",
+      })
+    );
+
+    return section;
   }
 
   _buildStatusSection() {
