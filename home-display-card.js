@@ -6,7 +6,7 @@
  * default, or an uploaded image).
  */
 
-const CARD_VERSION = "1.1.0";
+const CARD_VERSION = "1.2.0";
 
 console.info(
   `%c HOME-DISPLAY-CARD %c v${CARD_VERSION} `,
@@ -51,10 +51,15 @@ const IMAGE_PANEL_MODES = ["default", "image", "custom"];
 const DEFAULT_FORECAST = {
   enabled: true,
   days: 5,
+  hourly: true,
+  hours: 6,
 };
 
 const MIN_FORECAST_DAYS = 1;
 const MAX_FORECAST_DAYS = 7;
+
+const MIN_FORECAST_HOURS = 1;
+const MAX_FORECAST_HOURS = 8;
 
 const DEFAULT_IMAGE_PANEL = {
   enabled: true,
@@ -171,6 +176,14 @@ export function normalizeConfig(config) {
     ? Math.min(MAX_FORECAST_DAYS, Math.max(MIN_FORECAST_DAYS, days))
     : DEFAULT_FORECAST.days;
 
+  forecast.hourly = forecast.hourly !== false;
+
+  const hours = Number.parseInt(forecast.hours, 10);
+
+  forecast.hours = Number.isFinite(hours)
+    ? Math.min(MAX_FORECAST_HOURS, Math.max(MIN_FORECAST_HOURS, hours))
+    : DEFAULT_FORECAST.hours;
+
   return { entities, sensors, image_panel, forecast };
 }
 
@@ -184,12 +197,22 @@ class HomeDisplayCard extends HTMLElement {
     this._lastSheetSignature = "";
     this._lastCustomCode = null;
 
-    this._forecast = [];
-    this._forecastEntityId = null;
-    this._forecastUnsub = null;
-    this._forecastToken = null;
-    this._forecastPending = false;
-    this._lastForecastSignature = null;
+    // One independent subscription per forecast type.
+    this._forecastState = {
+      daily: this.blankForecastState(),
+      hourly: this.blankForecastState(),
+    };
+  }
+
+  blankForecastState() {
+    return {
+      data: [],
+      entityId: null,
+      unsub: null,
+      token: null,
+      pending: false,
+      signature: null,
+    };
   }
 
   static getConfigElement() {
@@ -212,7 +235,7 @@ class HomeDisplayCard extends HTMLElement {
     }
     this._config = normalizeConfig(config);
     if (this._hass) {
-      this.syncForecastSubscription();
+      this.syncForecastSubscriptions();
       this.updateData();
     }
   }
@@ -229,7 +252,7 @@ class HomeDisplayCard extends HTMLElement {
       this.startClock();
     }
 
-    this.syncForecastSubscription();
+    this.syncForecastSubscriptions();
     this.updateData();
   }
 
@@ -239,7 +262,7 @@ class HomeDisplayCard extends HTMLElement {
     }
 
     if (this._hass) {
-      this.syncForecastSubscription();
+      this.syncForecastSubscriptions();
     }
   }
 
@@ -249,7 +272,7 @@ class HomeDisplayCard extends HTMLElement {
       this._clockTimer = null;
     }
 
-    this.unsubscribeForecast();
+    this.unsubscribeForecasts();
   }
 
   getEntity(entityId) {
@@ -514,11 +537,15 @@ class HomeDisplayCard extends HTMLElement {
         .weather-current {
           display: grid;
 
+          /* icon | temp+condition | hourly strip. The strip takes the
+             slack the first two columns don't use; with it hidden the
+             block sits left exactly as before. */
           grid-template-columns:
             auto
-            minmax(0,1fr);
+            auto
+            minmax(0, 1fr);
 
-          gap: clamp(10px, 1.5vw, 22px);
+          gap: clamp(8px, 1.2vw, 18px);
 
           align-items: center;
           align-content: center;
@@ -570,6 +597,40 @@ class HomeDisplayCard extends HTMLElement {
            without this it would still take up a flex gap. */
         .weather-details span:empty {
           display: none;
+        }
+
+        .weather-hourly {
+          display: grid;
+
+          grid-template-columns:
+            repeat(6, minmax(0, 1fr));
+
+          gap: clamp(1px, .35vw, 6px);
+
+          justify-self: end;
+
+          max-width: 100%;
+
+          padding-left: clamp(8px, 1.1vw, 16px);
+
+          border-left:
+            1px solid rgba(86, 172, 225, 0.18);
+        }
+
+        .weather-hourly[hidden] {
+          display: none;
+        }
+
+        /* Hour labels sit lighter than the daily weekday headers so
+           the two strips don't compete. */
+        .weather-hourly .forecast-name {
+          color: #8dbbd6;
+          letter-spacing: .2px;
+        }
+
+        .weather-hourly .forecast-icon {
+          font-size:
+            clamp(11px, min(1.35vw, 2.1vh), 20px);
         }
 
         /* Column count is set from the configured day count in
@@ -1171,6 +1232,12 @@ class HomeDisplayCard extends HTMLElement {
 
                 </div>
 
+
+                <div
+                  class="weather-hourly"
+                  id="weatherHourly"
+                  hidden></div>
+
               </div>
 
               <div class="weather-details">
@@ -1595,7 +1662,7 @@ class HomeDisplayCard extends HTMLElement {
       // With the forecast strip on, today's high/low is already the
       // first column, so the details line only carries it when the
       // strip is switched off.
-      const today = this.forecastEntries()[0];
+      const today = this.forecastEntries("daily")[0];
 
       this.setText(
         "weatherHighLow",
@@ -1607,7 +1674,7 @@ class HomeDisplayCard extends HTMLElement {
     }
 
 
-    this.renderForecast();
+    this.renderForecasts();
 
 
     /* ==========================================================
@@ -1690,36 +1757,54 @@ class HomeDisplayCard extends HTMLElement {
      FORECAST
 
      Weather entities stopped carrying a "forecast" attribute in
-     Home Assistant 2024.4 (deprecated in 2023.9), so the forecast
-     has to be requested over the websocket connection, which then
-     pushes updates as they come in. Older cores that still expose
-     the attribute are covered by the fallback in forecastEntries().
+     Home Assistant 2024.4 (deprecated in 2023.9), so forecasts have
+     to be requested over the websocket connection, which then pushes
+     updates as they come in. Daily and hourly are separate
+     subscriptions; each is managed independently so one entity
+     offering only daily still renders that strip. Older cores that
+     still expose the attribute are covered by the fallback in
+     forecastEntries().
      ========================================================== */
 
-  syncForecastSubscription() {
+  forecastTypeEnabled(type) {
+    return type === "hourly"
+      ? this._config.forecast.hourly
+      : this._config.forecast.enabled;
+  }
 
-    const entityId = this._config.forecast.enabled
+
+  syncForecastSubscriptions() {
+    this.syncForecastSubscription("daily");
+    this.syncForecastSubscription("hourly");
+  }
+
+
+  syncForecastSubscription(type) {
+
+    const state = this._forecastState[type];
+
+    const entityId = this.forecastTypeEnabled(type)
       ? this._config.entities.weather
       : "";
 
 
     if (
-      entityId === this._forecastEntityId &&
-      (this._forecastUnsub || this._forecastPending)
+      entityId === state.entityId &&
+      (state.unsub || state.pending)
     ) {
       return;
     }
 
 
-    if (entityId !== this._forecastEntityId) {
+    if (entityId !== state.entityId) {
       // Data from the previous entity must not linger on screen.
-      this._forecast = [];
+      state.data = [];
     }
 
 
-    this.unsubscribeForecast();
+    this.unsubscribeForecast(type);
 
-    this._forecastEntityId = entityId;
+    state.entityId = entityId;
 
 
     if (
@@ -1734,79 +1819,95 @@ class HomeDisplayCard extends HTMLElement {
     // already moved on to a different entity.
     const token = {};
 
-    this._forecastToken = token;
-    this._forecastPending = true;
+    state.token = token;
+    state.pending = true;
 
 
     this._hass.connection
       .subscribeMessage(
         (message) => {
-          if (this._forecastToken !== token) return;
+          if (state.token !== token) return;
 
-          this._forecast = Array.isArray(message?.forecast)
+          state.data = Array.isArray(message?.forecast)
             ? message.forecast
             : [];
 
-          this.renderForecast();
+          this.renderForecast(type);
         },
         {
           type: "weather/subscribe_forecast",
-          forecast_type: "daily",
+          forecast_type: type,
           entity_id: entityId,
         }
       )
       .then((unsub) => {
-        this._forecastPending = false;
+        state.pending = false;
 
-        if (this._forecastToken !== token) {
+        if (state.token !== token) {
           // Superseded while in flight — close what we just opened.
           unsub();
           return;
         }
 
-        this._forecastUnsub = unsub;
+        state.unsub = unsub;
       })
       .catch(() => {
-        this._forecastPending = false;
+        state.pending = false;
 
-        if (this._forecastToken !== token) return;
+        if (state.token !== token) return;
 
-        // Entity provides no daily forecast, or the core predates
-        // the command; the attribute fallback handles the rest.
-        this._forecastUnsub = null;
+        // Entity provides no forecast of this type, or the core
+        // predates the command; the strip simply stays hidden.
+        state.unsub = null;
 
-        this.renderForecast();
+        this.renderForecast(type);
       });
   }
 
 
-  unsubscribeForecast() {
+  unsubscribeForecasts() {
+    this.unsubscribeForecast("daily");
+    this.unsubscribeForecast("hourly");
+  }
 
-    this._forecastToken = null;
-    this._forecastPending = false;
+
+  unsubscribeForecast(type) {
+
+    const state = this._forecastState[type];
+
+    state.token = null;
+    state.pending = false;
 
 
-    if (this._forecastUnsub) {
+    if (state.unsub) {
 
       try {
-        this._forecastUnsub();
+        state.unsub();
       } catch (err) {
         // The connection may already be gone; nothing to clean up.
       }
 
-      this._forecastUnsub = null;
+      state.unsub = null;
     }
   }
 
 
-  forecastEntries() {
+  forecastEntries(type) {
+
+    const state = this._forecastState[type];
+
 
     if (
-      Array.isArray(this._forecast) &&
-      this._forecast.length
+      Array.isArray(state.data) &&
+      state.data.length
     ) {
-      return this._forecast;
+      return state.data;
     }
+
+
+    // Only the daily strip has a legacy fallback: the removed
+    // attribute was daily on every integration that set it.
+    if (type !== "daily") return [];
 
 
     const legacy =
@@ -1843,31 +1944,93 @@ class HomeDisplayCard extends HTMLElement {
   }
 
 
-  renderForecast() {
+  forecastHourLabel(entry, index) {
+
+    const date = entry?.datetime
+      ? new Date(entry.datetime)
+      : null;
+
+
+    if (!date || Number.isNaN(date.getTime())) {
+      return "--";
+    }
+
+
+    const now = new Date();
+
+    if (
+      index === 0 &&
+      date.getHours() === now.getHours() &&
+      date.toDateString() === now.toDateString()
+    ) {
+      return "Now";
+    }
+
+
+    // Home Assistant's own 12/24-hour preference, where the user
+    // has expressed one.
+    const timeFormat = this._hass?.locale?.time_format;
+
+    const options = { hour: "numeric" };
+
+    if (timeFormat === "12") options.hour12 = true;
+    if (timeFormat === "24") options.hour12 = false;
+
+
+    return date
+      .toLocaleTimeString(
+        this._hass?.locale?.language || undefined,
+        options
+      )
+      .replace(/\s+/g, "");
+  }
+
+
+  renderForecasts() {
+    this.renderForecast("daily");
+    this.renderForecast("hourly");
+  }
+
+
+  renderForecast(type) {
+
+    const isHourly = type === "hourly";
 
     const container =
       this.shadowRoot?.getElementById(
-        "weatherForecast"
+        isHourly ? "weatherHourly" : "weatherForecast"
       );
 
 
     if (!container) return;
 
 
-    if (!this._config.forecast.enabled) {
+    const state = this._forecastState[type];
+
+
+    if (!this.forecastTypeEnabled(type)) {
 
       container.hidden = true;
       container.innerHTML = "";
 
-      this._lastForecastSignature = "";
+      state.signature = "";
 
       return;
     }
 
 
+    const limit = isHourly
+      ? this._config.forecast.hours
+      : this._config.forecast.days;
+
     const entries =
-      this.forecastEntries()
-        .slice(0, this._config.forecast.days);
+      this.forecastEntries(type).slice(0, limit);
+
+
+    const label = (entry, index) =>
+      isHourly
+        ? this.forecastHourLabel(entry, index)
+        : this.forecastDayLabel(entry, index);
 
 
     const signature =
@@ -1875,7 +2038,7 @@ class HomeDisplayCard extends HTMLElement {
         .map(
           (entry, index) =>
             [
-              this.forecastDayLabel(entry, index),
+              label(entry, index),
               entry?.condition,
               entry?.temperature,
               entry?.templow,
@@ -1884,15 +2047,10 @@ class HomeDisplayCard extends HTMLElement {
         .join("|");
 
 
-    if (
-      signature ===
-      this._lastForecastSignature
-    ) {
-      return;
-    }
+    if (signature === state.signature) return;
 
 
-    this._lastForecastSignature = signature;
+    state.signature = signature;
 
 
     container.hidden = entries.length === 0;
@@ -1915,7 +2073,7 @@ class HomeDisplayCard extends HTMLElement {
               <div class="forecast-day">
 
                 <div class="forecast-name">
-                  ${escapeHtml(this.forecastDayLabel(entry, index))}
+                  ${escapeHtml(label(entry, index))}
                 </div>
 
                 <div class="forecast-icon">
@@ -1928,9 +2086,15 @@ class HomeDisplayCard extends HTMLElement {
                     ${escapeHtml(entry?.temperature ?? "--")}°
                   </span>
 
-                  <span class="forecast-low">
-                    ${escapeHtml(entry?.templow ?? "--")}°
-                  </span>
+                  ${
+                    isHourly
+                      ? ""
+                      : `
+                        <span class="forecast-low">
+                          ${escapeHtml(entry?.templow ?? "--")}°
+                        </span>
+                      `
+                  }
 
                 </div>
 
@@ -2540,58 +2704,105 @@ class HomeDisplayCardEditor extends HTMLElement {
     const hint = document.createElement("p");
     hint.className = "hint";
     hint.textContent =
-      "Shows a multi-day forecast strip below the current conditions. Requires a weather entity that provides a daily forecast.";
+      "The daily strip sits below the current conditions; the hourly strip fills the space to their right. Each needs a weather entity that provides that kind of forecast, and hides itself if there is none.";
     section.appendChild(hint);
 
-    const toggleWrap = document.createElement("label");
-    toggleWrap.className = "toggle-field";
-
-    const toggle = document.createElement("input");
-    toggle.type = "checkbox";
-    toggle.checked = this._config.forecast.enabled;
-
-    toggle.addEventListener("change", () => {
-      this._updateConfig((cfg) => {
-        cfg.forecast = { ...cfg.forecast, enabled: toggle.checked };
-      });
-      this._render();
-    });
-
-    toggleWrap.append(toggle, document.createTextNode(" Show forecast"));
-    section.appendChild(toggleWrap);
+    section.appendChild(
+      this._buildForecastToggle({
+        label: " Show daily forecast",
+        checked: this._config.forecast.enabled,
+        onChange: (checked) => ({ enabled: checked }),
+      })
+    );
 
     if (this._config.forecast.enabled) {
-      const daysWrap = document.createElement("div");
-      daysWrap.className = "field";
+      section.appendChild(
+        this._buildForecastCount({
+          label: "Days",
+          value: this._config.forecast.days,
+          min: MIN_FORECAST_DAYS,
+          max: MAX_FORECAST_DAYS,
+          unit: "day",
+          onChange: (count) => ({ days: count }),
+        })
+      );
+    }
 
-      const daysLabel = document.createElement("label");
-      daysLabel.textContent = "Days";
+    section.appendChild(
+      this._buildForecastToggle({
+        label: " Show hourly forecast",
+        checked: this._config.forecast.hourly,
+        onChange: (checked) => ({ hourly: checked }),
+      })
+    );
 
-      const daysSelect = document.createElement("select");
-
-      for (let day = MIN_FORECAST_DAYS; day <= MAX_FORECAST_DAYS; day += 1) {
-        const option = document.createElement("option");
-        option.value = String(day);
-        option.textContent = `${day} day${day === 1 ? "" : "s"}`;
-        daysSelect.appendChild(option);
-      }
-
-      daysSelect.value = String(this._config.forecast.days);
-
-      daysSelect.addEventListener("change", () => {
-        this._updateConfig((cfg) => {
-          cfg.forecast = {
-            ...cfg.forecast,
-            days: Number.parseInt(daysSelect.value, 10),
-          };
-        });
-      });
-
-      daysWrap.append(daysLabel, daysSelect);
-      section.appendChild(daysWrap);
+    if (this._config.forecast.hourly) {
+      section.appendChild(
+        this._buildForecastCount({
+          label: "Hours",
+          value: this._config.forecast.hours,
+          min: MIN_FORECAST_HOURS,
+          max: MAX_FORECAST_HOURS,
+          unit: "hour",
+          onChange: (count) => ({ hours: count }),
+        })
+      );
     }
 
     return section;
+  }
+
+  _buildForecastToggle({ label, checked, onChange }) {
+    const wrap = document.createElement("label");
+    wrap.className = "toggle-field";
+
+    const toggle = document.createElement("input");
+    toggle.type = "checkbox";
+    toggle.checked = checked;
+
+    toggle.addEventListener("change", () => {
+      this._updateConfig((cfg) => {
+        cfg.forecast = { ...cfg.forecast, ...onChange(toggle.checked) };
+      });
+      // The matching count dropdown appears or disappears with it.
+      this._render();
+    });
+
+    wrap.append(toggle, document.createTextNode(label));
+
+    return wrap;
+  }
+
+  _buildForecastCount({ label, value, min, max, unit, onChange }) {
+    const wrap = document.createElement("div");
+    wrap.className = "field";
+
+    const labelEl = document.createElement("label");
+    labelEl.textContent = label;
+
+    const select = document.createElement("select");
+
+    for (let count = min; count <= max; count += 1) {
+      const option = document.createElement("option");
+      option.value = String(count);
+      option.textContent = `${count} ${unit}${count === 1 ? "" : "s"}`;
+      select.appendChild(option);
+    }
+
+    select.value = String(value);
+
+    select.addEventListener("change", () => {
+      this._updateConfig((cfg) => {
+        cfg.forecast = {
+          ...cfg.forecast,
+          ...onChange(Number.parseInt(select.value, 10)),
+        };
+      });
+    });
+
+    wrap.append(labelEl, select);
+
+    return wrap;
   }
 
   _buildImagePanelSection() {

@@ -90,3 +90,17 @@ proper Lovelace custom card:
   off, the details line goes back to showing today's `High … / Low …`.
 - The subscription follows the configured weather entity, and is torn down
   when the card leaves the DOM.
+
+## v1.2.0
+
+- **Adds an hourly forecast** to the weather card, in the empty space to the
+  right of the current temperature — so it costs no vertical room and
+  nothing else on the dashboard moves. Each column is the hour, a condition
+  icon, and the temperature; the first reads `Now`, and clock times follow
+  Home Assistant's 12/24-hour setting.
+- New `forecast.hourly` (default `true`) and `forecast.hours` (`1`-`8`,
+  default `6`), with a matching toggle and dropdown in the visual editor.
+- Daily and hourly are separate `weather/subscribe_forecast` subscriptions,
+  so an entity that offers only one kind still shows that strip and hides
+  the other. The legacy pre-2024.4 `forecast` attribute remains a fallback
+  for the daily strip only, since that is what integrations put there.

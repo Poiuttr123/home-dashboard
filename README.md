@@ -1,7 +1,7 @@
 # Home Display Card
 
-A full dashboard-style Lovelace card for Home Assistant: clock, weather with a
-5-day forecast, zmanim, special times, a configurable "Daily Information" sensor
+A full dashboard-style Lovelace card for Home Assistant: clock, weather with 5-day
+and hourly forecasts, zmanim, special times, a configurable "Daily Information" sensor
 list, and a toggleable bottom-right panel (wedding countdown iframe by default,
 or your own uploaded image).
 
@@ -41,6 +41,8 @@ entities:
 forecast:
   enabled: true
   days: 5
+  hourly: true
+  hours: 6
 sensors:
   - entity: sensor.example_one
   - entity: sensor.example_two
@@ -59,20 +61,29 @@ unspecified keys fall back to the defaults shown above.
 
 ### `forecast`
 
-Controls the multi-day forecast strip under the current conditions.
+Controls the two forecast strips on the weather card: a **daily** one under
+the current conditions, and an **hourly** one filling the space to their
+right.
 
-- `enabled` — `true`/`false`. When `false`, the strip is hidden and the
-  details line falls back to today's `High … / Low …` instead.
-- `days` — how many days to show, `1`–`7` (default `5`). Fewer are shown if
-  the weather entity provides fewer.
+- `enabled` — `true`/`false` for the daily strip. When `false`, it's hidden
+  and the details line falls back to today's `High … / Low …` instead.
+- `days` — how many days to show, `1`–`7` (default `5`).
+- `hourly` — `true`/`false` for the hourly strip.
+- `hours` — how many hours to show, `1`–`8` (default `6`). The first column
+  is labelled `Now`, and clock times follow Home Assistant's 12/24-hour
+  setting.
 
-The forecast is requested over Home Assistant's websocket connection
-(`weather/subscribe_forecast`), so it updates as the integration pushes new
+Both are requested over Home Assistant's websocket connection
+(`weather/subscribe_forecast`), so they update as the integration pushes new
 data. Home Assistant removed the old `forecast` entity attribute in 2024.4;
-the card still falls back to it if it's present, so older cores keep working.
+the daily strip still falls back to it if present, so older cores keep
+working.
 
-Not every weather integration provides a daily forecast. If yours doesn't,
-the strip stays hidden and the rest of the weather card is unaffected.
+The two are independent: each is its own subscription, so a weather entity
+offering only one kind still shows that strip and quietly hides the other.
+Fewer columns are drawn if the entity provides fewer than requested, and a
+strip with no data at all stays hidden without affecting the rest of the
+card.
 
 ### `sensors`
 
@@ -113,8 +124,8 @@ Controls the bottom-right panel:
   session, cookies, or the rest of the dashboard — it can only draw into its
   own document). Whatever it renders fills the panel.
 
-The **Weather Forecast** section of the visual editor has a matching toggle
-and a **Days** dropdown.
+The **Weather Forecast** section of the visual editor has a toggle and a
+count dropdown for each strip.
 
 In the visual editor, the **Bottom Right Panel** section has a toggle, a
 **Content** dropdown for the three modes above, and mode-specific controls:
