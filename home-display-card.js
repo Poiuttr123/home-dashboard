@@ -6,7 +6,7 @@
  * default, or an uploaded image).
  */
 
-const CARD_VERSION = "1.5.0";
+const CARD_VERSION = "1.6.0";
 
 console.info(
   `%c HOME-DISPLAY-CARD %c v${CARD_VERSION} `,
@@ -148,6 +148,23 @@ const STATUS_ERROR_STATES = new Set([
   "unavailable", "unknown", "none", "error", "fault",
 ]);
 
+// Cloud-backed devices flick to unavailable for a few seconds many times
+// an hour. Alarming on each blip would train the eye to ignore the colour,
+// so an outage has to last this long before it counts.
+const DEFAULT_STATUS_GRACE = 180;
+
+function normalizeGrace(value) {
+  if (value === undefined || value === null || value === "") {
+    return DEFAULT_STATUS_GRACE;
+  }
+
+  const seconds = Number.parseInt(value, 10);
+
+  return Number.isFinite(seconds) && seconds >= 0
+    ? seconds
+    : DEFAULT_STATUS_GRACE;
+}
+
 function normalizeStaleAfter(value) {
   const minutes = Number.parseInt(value, 10);
 
@@ -165,6 +182,7 @@ function normalizeStatusEntry(entry) {
           expected: "",
           stale_after: 0,
           stale_entity: "",
+          grace: DEFAULT_STATUS_GRACE,
         }
       : null;
   }
@@ -177,6 +195,7 @@ function normalizeStatusEntry(entry) {
       expected: entry.expected || "",
       stale_after: normalizeStaleAfter(entry.stale_after),
       stale_entity: entry.stale_entity || "",
+      grace: normalizeGrace(entry.grace),
     };
   }
   return null;
@@ -252,6 +271,8 @@ class HomeDisplayCard extends HTMLElement {
     this._clockTimer = null;
     this._lastSheetSignature = "";
     this._lastStatusSignature = "";
+    // Last trustworthy value per entity, held across short outages.
+    this._statusLastGood = {};
     this._lastCustomCode = null;
 
     // One independent subscription per forecast type.
@@ -2154,6 +2175,24 @@ class HomeDisplayCard extends HTMLElement {
   }
 
 
+  // How long the entity has been sitting in its current state. Uses
+  // last_changed (when it went unavailable), not last_reported.
+  statusStateAgeSeconds(state) {
+
+    const stamp = state?.last_changed || state?.last_updated;
+
+    if (!stamp) return null;
+
+
+    const at = new Date(stamp).getTime();
+
+    if (Number.isNaN(at)) return null;
+
+
+    return (Date.now() - at) / 1000;
+  }
+
+
   forecastDayLabel(entry, index) {
 
     const date = entry?.datetime
@@ -2411,6 +2450,32 @@ class HomeDisplayCard extends HTMLElement {
 
 
     if (!raw || STATUS_ERROR_STATES.has(raw)) {
+
+      const outFor = this.statusStateAgeSeconds(state);
+
+      const cached = this._statusLastGood[entry.entity];
+
+
+      // A blip lasting seconds is normal for a cloud device and says
+      // nothing about the appliance. Keep showing the last value we
+      // trusted until the outage has lasted long enough to mean
+      // something; a real one lasts hours, so this only delays a true
+      // alarm by the grace period.
+      if (
+        entry.grace &&
+        outFor !== null &&
+        outFor < entry.grace &&
+        cached
+      ) {
+        return {
+          key: entry.entity,
+          name,
+          value: cached.value,
+          level: cached.level,
+        };
+      }
+
+
       return {
         key: entry.entity,
         name,
@@ -2479,11 +2544,18 @@ class HomeDisplayCard extends HTMLElement {
     }
 
 
+    const level = isOn ? "on" : "off";
+
+    // Remember the last value we could vouch for, so a blip can be
+    // ridden out rather than alarmed on.
+    this._statusLastGood[entry.entity] = { value: label, level };
+
+
     return {
       key: entry.entity,
       name,
       value: label,
-      level: isOn ? "on" : "off",
+      level,
     };
   }
 
@@ -3167,6 +3239,29 @@ class HomeDisplayCardEditor extends HTMLElement {
     heartbeatHint.textContent =
       "Optional: check that entity's freshness instead. Pick the busiest entity on the same device — a switch can sit unchanged for hours legitimately, so it makes a poor heartbeat.";
 
+    const graceHint = document.createElement("p");
+    graceHint.className = "hint";
+    graceHint.textContent =
+      "Seconds an 'unavailable' blip must last before it turns red (default 180). Cloud devices drop out for a few seconds many times an hour; alarming on each one just teaches you to ignore the colour. 0 alarms immediately.";
+
+    const graceWrap = document.createElement("div");
+    graceWrap.className = "field";
+
+    const graceLabel = document.createElement("label");
+    graceLabel.textContent = "Ignore blips shorter than (seconds)";
+
+    const graceInput = document.createElement("input");
+    graceInput.type = "number";
+    graceInput.min = "0";
+    graceInput.placeholder = "180";
+    graceInput.value = String(entry.grace);
+
+    graceInput.addEventListener("change", () =>
+      update({ grace: graceInput.value })
+    );
+
+    graceWrap.append(graceLabel, graceInput);
+
     const heartbeatPicker = this._buildEntityField({
       label: "Heartbeat entity (optional)",
       value: entry.stale_entity,
@@ -3197,6 +3292,8 @@ class HomeDisplayCardEditor extends HTMLElement {
       staleWrap,
       heartbeatHint,
       heartbeatPicker,
+      graceHint,
+      graceWrap,
       removeButton
     );
 

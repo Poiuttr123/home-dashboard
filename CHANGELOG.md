@@ -171,3 +171,16 @@ proper Lovelace custom card:
 - Fixes indicator chips stretching to the full height of their row. They
   inherited the flex default of `stretch`; harmless until the new pill
   radius turned it into large red discs.
+
+## v1.6.0
+
+- **Stops the indicators crying wolf.** `unavailable` turned a row red
+  instantly, and cloud-backed devices blip out for a few seconds many
+  times an hour — one Samsung fridge here blips up to ~140s, several
+  times an hour — so a blinking red alarm would have fired constantly and
+  taught the eye to ignore it. The last trustworthy value is now held for
+  `grace` seconds (default 180) before an outage counts. A real outage
+  lasts hours, so a genuine alarm is only delayed by the grace period.
+- With no earlier good value to fall back on, it still alarms
+  immediately rather than inventing a reassuring one. `grace: 0` restores
+  the old alarm-at-once behaviour.

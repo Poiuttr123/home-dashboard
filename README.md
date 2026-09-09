@@ -118,6 +118,8 @@ Each entry is either an entity ID string, or an object:
   offline. Omit to skip the check.
 - `stale_entity` — optional entity to check the freshness of instead of
   this one.
+- `grace` — seconds an `unavailable` blip must last before it turns red
+  (default `180`; `0` alarms immediately).
 
 A red row **blinks brightly** so it can't be missed from across a room.
 (Under the system's reduced-motion setting it stays bright but still.)
@@ -126,7 +128,16 @@ A row turns red in four cases:
 
 1. **Unreachable** — the entity is `unavailable`, `unknown`, or has no
    state, so the card can't vouch for what it shows. Displays
-   `Unavailable`.
+   `Unavailable`, once the outage outlasts `grace`.
+
+   Cloud-backed devices drop out for a few seconds many times an hour;
+   one Samsung fridge here blips up to ~140 seconds, several times an
+   hour. Alarming on each blip would teach you to ignore the colour, so
+   the last trustworthy value is held until the outage lasts long enough
+   to mean something. A real outage lasts hours, so this only delays a
+   genuine alarm by `grace`. With no earlier trustworthy value to fall
+   back on, it alarms straight away rather than inventing a reassuring
+   one.
 2. **Missing** — no such entity, usually a typo or a removed device.
    Displays `Missing`. This is deliberately not shown as "Off", which
    would be a confident lie.
