@@ -104,3 +104,16 @@ proper Lovelace custom card:
   so an entity that offers only one kind still shows that strip and hides
   the other. The legacy pre-2024.4 `forecast` attribute remains a fallback
   for the daily strip only, since that is what integrations put there.
+
+## v1.2.1
+
+- **Fixes the large empty gap between the current conditions and the hourly
+  forecast.** The strip carried `justify-self: end`, which sized it to its
+  content and pinned it to the card's right edge instead of letting it fill
+  the column — so every spare pixel collected into one gap in the middle.
+  Very visible on a wide dashboard, barely noticeable on a narrow one, which
+  is why it slipped through. The strip now stretches, starting immediately
+  after the current conditions and running to the card edge, the same way
+  the daily strip below it already did.
+- `forecast.hours` now goes up to `12` (was `8`), so a wide card can be
+  filled with columns rather than spacing.

@@ -6,7 +6,7 @@
  * default, or an uploaded image).
  */
 
-const CARD_VERSION = "1.2.0";
+const CARD_VERSION = "1.2.1";
 
 console.info(
   `%c HOME-DISPLAY-CARD %c v${CARD_VERSION} `,
@@ -59,7 +59,7 @@ const MIN_FORECAST_DAYS = 1;
 const MAX_FORECAST_DAYS = 7;
 
 const MIN_FORECAST_HOURS = 1;
-const MAX_FORECAST_HOURS = 8;
+const MAX_FORECAST_HOURS = 12;
 
 const DEFAULT_IMAGE_PANEL = {
   enabled: true,
@@ -607,9 +607,12 @@ class HomeDisplayCard extends HTMLElement {
 
           gap: clamp(1px, .35vw, 6px);
 
-          justify-self: end;
-
-          max-width: 100%;
+          /* No justify-self here: the strip must STRETCH across its
+             1fr column so it begins right after the current
+             conditions and runs to the card edge. Sizing it to its
+             content instead (justify-self: end) pinned it to the
+             right and dumped every pixel of slack into one gap in
+             the middle — very visible on a wide dashboard. */
 
           padding-left: clamp(8px, 1.1vw, 16px);
 

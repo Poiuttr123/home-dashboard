@@ -69,7 +69,9 @@ right.
   and the details line falls back to today's `High … / Low …` instead.
 - `days` — how many days to show, `1`–`7` (default `5`).
 - `hourly` — `true`/`false` for the hourly strip.
-- `hours` — how many hours to show, `1`–`8` (default `6`). The first column
+- `hours` — how many hours to show, `1`–`12` (default `6`). On a wide
+  dashboard, raise this: the strip spreads its columns across the whole
+  width, so more hours read better than fewer. The first column
   is labelled `Now`, and clock times follow Home Assistant's 12/24-hour
   setting.
 
