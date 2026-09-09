@@ -197,24 +197,3 @@ proper Lovelace custom card:
   cropped. Setting the percentage lost makes the card lay itself out
   inside the visible area.
 - Row shares always total 100, whatever `layout.zmanim` is set to.
-
-## v1.8.0
-
-- **`layout.bottom_crop` becomes `layout.height`** — how much of the
-  available height the card uses, as a percent (default 100, min 40),
-  which is the honest name for what it does. Lower it to make the card
-  shorter. `bottom_crop` still works and means the inverse.
-- **Shrinking now scales the card instead of squeezing it.** v1.7.0 just
-  reduced the page height, which left the `clamp()` floors on font sizes
-  untouched: below about 90% the text stopped shrinking, outgrew its
-  boxes and overlapped — the zmanim times were clipped and the weather
-  block ran into itself. It is applied with `zoom` now, so type, boxes
-  and spacing shrink together and nothing overlaps at any height.
-- `height` is measured against the **window**, not the card's container.
-  A host can hand the card a container taller than the window — Home
-  Assistant inside a DW Spectrum tile does, which is what puts a
-  scrollbar on the page and leaves the footer below the fold — and a
-  percentage of a container that is already too tall is still too tall.
-- The width is deliberately left alone. Chromium resolves percentages
-  inside a zoomed element in the zoomed coordinate space, so overriding
-  the width double-counts and pushes the card off the right edge.

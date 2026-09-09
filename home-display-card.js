@@ -6,7 +6,7 @@
  * default, or an uploaded image).
  */
 
-const CARD_VERSION = "1.8.0";
+const CARD_VERSION = "1.7.0";
 
 console.info(
   `%c HOME-DISPLAY-CARD %c v${CARD_VERSION} `,
@@ -143,36 +143,26 @@ const LAYOUT_DAILY_BASE = 43;
 
 const DEFAULT_LAYOUT = {
   zmanim: 14,
-  height: 100,
+  bottom_crop: 0,
 };
 
 const MIN_ZMANIM_FR = 6;
 const MAX_ZMANIM_FR = 30;
-const MIN_HEIGHT = 40;
-const MAX_HEIGHT = 100;
+const MAX_BOTTOM_CROP = 40;
 
 function normalizeLayout(source) {
   const provided = source || {};
 
   const zmanim = Number.parseInt(provided.zmanim, 10);
-
-  let height = Number.parseInt(provided.height, 10);
-
-  if (!Number.isFinite(height)) {
-    // Back-compat: 1.7.0 expressed this as the percentage a display
-    // crops off the bottom, which is the same number inverted.
-    const crop = Number.parseInt(provided.bottom_crop, 10);
-
-    height = Number.isFinite(crop)
-      ? 100 - Math.min(60, Math.max(0, crop))
-      : DEFAULT_LAYOUT.height;
-  }
+  const crop = Number.parseInt(provided.bottom_crop, 10);
 
   return {
     zmanim: Number.isFinite(zmanim)
       ? Math.min(MAX_ZMANIM_FR, Math.max(MIN_ZMANIM_FR, zmanim))
       : DEFAULT_LAYOUT.zmanim,
-    height: Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, height)),
+    bottom_crop: Number.isFinite(crop)
+      ? Math.min(MAX_BOTTOM_CROP, Math.max(0, crop))
+      : DEFAULT_LAYOUT.bottom_crop,
   };
 }
 
@@ -2627,12 +2617,10 @@ class HomeDisplayCard extends HTMLElement {
   /* ==========================================================
      LAYOUT
 
-     layout.height is the share of the available height the card
-     actually uses. Below 100 it serves two purposes: fitting a host
-     that renders the page taller than it displays (a DW Spectrum
-     video-wall tile does this, cropping the footer off the bottom),
-     and simply making the card shorter when the space it is given is
-     taller than it needs to be.
+     Some hosts (a DW Spectrum video-wall tile, for one) render the
+     page taller than the area they actually display, so the footer
+     falls below the visible edge. bottom_crop shrinks the page by
+     that percentage so everything lands inside what is on screen.
      ========================================================== */
 
   applyLayout() {
@@ -2644,7 +2632,7 @@ class HomeDisplayCard extends HTMLElement {
     if (!page || !dashboard) return;
 
 
-    const { zmanim, height } = this._config.layout;
+    const { zmanim, bottom_crop } = this._config.layout;
 
     const daily =
       LAYOUT_DAILY_BASE + (LAYOUT_ZMANIM_BASE - zmanim);
@@ -2657,34 +2645,9 @@ class HomeDisplayCard extends HTMLElement {
       ` minmax(0, ${LAYOUT_FOOTER_FR}fr)`;
 
 
-    // Scaling with zoom rather than just shrinking the page keeps type
-    // and boxes in proportion. Reducing the height alone leaves the
-    // clamp() floors on font sizes where they are, so the text stops
-    // shrinking, outgrows its boxes and starts overlapping.
-    //
-    // The width is divided back out so the card still fills its column:
-    // zoom shrinks both axes, and only the height is meant to change.
-    if (height < 100) {
-
-      // Sized against the WINDOW, not the parent. A host can hand the
-      // card a container taller than the window - Home Assistant in a
-      // DW Spectrum tile does, which is why the page scrolls and the
-      // footer sits below the fold - and a percentage of a container
-      // that is already too tall is still too tall.
-      this.style.height = `${height}vh`;
-
-      // zoom scales type and boxes together. Chromium resolves
-      // percentages inside a zoomed element in the zoomed coordinate
-      // space, so the page still asks for 100% and the width is left
-      // alone; overriding it double-counts and pushes the card off the
-      // right edge.
-      page.style.zoom = String(height / 100);
-      page.style.height = "100%";
-    } else {
-      this.style.height = "";
-      page.style.zoom = "";
-      page.style.height = "";
-    }
+    page.style.height = bottom_crop
+      ? `${100 - bottom_crop}%`
+      : "";
   }
 
 
@@ -3264,13 +3227,13 @@ class HomeDisplayCardEditor extends HTMLElement {
 
     section.appendChild(
       numberField({
-        label: "Card height (% of the space it is given)",
-        hint: "Lower this to make the card shorter top to bottom; everything scales down together, so nothing overlaps. 100 fills the space. Also the fix for a screen that shows less of the page than the browser renders — a DW Spectrum video-wall tile cuts the footer off the bottom, so set this to the percentage actually visible.",
-        value: this._config.layout.height,
-        min: MIN_HEIGHT,
-        max: MAX_HEIGHT,
-        placeholder: "100",
-        key: "height",
+        label: "Bottom cut off by the display (%)",
+        hint: "For screens that show less of the page than the browser renders — a DW Spectrum video-wall tile, for example — which cuts the footer off the bottom. Set the percentage being lost and the card lays itself out inside what is actually visible. 0 for a normal browser.",
+        value: this._config.layout.bottom_crop,
+        min: 0,
+        max: MAX_BOTTOM_CROP,
+        placeholder: "0",
+        key: "bottom_crop",
       })
     );
 
