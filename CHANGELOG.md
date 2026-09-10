@@ -247,3 +247,12 @@ proper Lovelace custom card:
   into place, so only one block of that type can hold it — the duplicate
   is now dropped. Easy config to reach by mis-clicking the type dropdown.
   Multiple `sensors` blocks are independent and all still render.
+
+## v1.10.3
+
+- Fixes the Daily Information sensor rows drawing on top of an image
+  sharing their row. The code hid the grid correctly, but `.daily-grid`
+  and `.daily-card` carry an author `display` rule, which beats the
+  browser's `[hidden]` rule — so setting `.hidden` did nothing. Every
+  other hideable element already had its own `[hidden]` rule; these two
+  were missed.

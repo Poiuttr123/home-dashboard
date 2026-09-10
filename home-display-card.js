@@ -6,7 +6,7 @@
  * default, or an uploaded image).
  */
 
-const CARD_VERSION = "1.10.2";
+const CARD_VERSION = "1.10.3";
 
 console.info(
   `%c HOME-DISPLAY-CARD %c v${CARD_VERSION} `,
@@ -1455,6 +1455,15 @@ class HomeDisplayCard extends HTMLElement {
             animation: none;
             opacity: 1;
           }
+        }
+
+        /* An author display rule beats the browser's [hidden] rule, so
+           anything hidden from JavaScript needs its own. Without this,
+           setting .hidden here did nothing and the sensor rows drew on
+           top of an image sharing the row. */
+        .daily-grid[hidden],
+        .daily-card[hidden] {
+          display: none;
         }
 
         .daily-grid {
