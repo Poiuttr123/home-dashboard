@@ -6,7 +6,7 @@
  * default, or an uploaded image).
  */
 
-const CARD_VERSION = "1.10.1";
+const CARD_VERSION = "1.10.2";
 
 console.info(
   `%c HOME-DISPLAY-CARD %c v${CARD_VERSION} `,
@@ -2996,15 +2996,25 @@ class HomeDisplayCard extends HTMLElement {
       blocks.some(block => block.type === "status");
 
 
-    if (wantsStatus && !hasStatusBlock) {
-      return [
-        ...blocks,
-        { type: "status", title: "", show_when: [], sensors: [] },
-      ];
-    }
+    const withStatus =
+      wantsStatus && !hasStatusBlock
+        ? [...blocks, { type: "status", title: "", show_when: [], sensors: [] }]
+        : blocks;
 
 
-    return blocks;
+    // special_times and status each render a single shared element that
+    // gets moved into place, so a second block of either type would
+    // draw an empty heading with nothing under it. Only the first of
+    // each survives; sensors blocks are independent and all render.
+    const seen = new Set();
+
+    return withStatus.filter(block => {
+      if (block.type === "sensors") return true;
+      if (seen.has(block.type)) return false;
+
+      seen.add(block.type);
+      return true;
+    });
   }
 
 

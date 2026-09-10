@@ -239,3 +239,11 @@ proper Lovelace custom card:
   both conditions passed. They share a grid row, which is the normal
   setup — a conditional image plus an always-on sensor list — so the
   image now takes the row and the grid stands down.
+
+## v1.10.2
+
+- A second `special_times` or `status` block in `top_right` rendered as an
+  empty heading. Each type draws a single shared element that gets moved
+  into place, so only one block of that type can hold it — the duplicate
+  is now dropped. Easy config to reach by mis-clicking the type dropdown.
+  Multiple `sensors` blocks are independent and all still render.
