@@ -232,3 +232,10 @@ proper Lovelace custom card:
 - An image block with no image is skipped rather than blanking the card,
   and if nothing qualifies the Daily Information card is dropped instead
   of showing an empty titled box.
+
+## v1.10.1
+
+- Fixes an image block and a sensors block drawing over each other when
+  both conditions passed. They share a grid row, which is the normal
+  setup — a conditional image plus an always-on sensor list — so the
+  image now takes the row and the grid stands down.

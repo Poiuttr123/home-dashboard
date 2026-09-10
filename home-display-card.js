@@ -6,7 +6,7 @@
  * default, or an uploaded image).
  */
 
-const CARD_VERSION = "1.10.0";
+const CARD_VERSION = "1.10.1";
 
 console.info(
   `%c HOME-DISPLAY-CARD %c v${CARD_VERSION} `,
@@ -3089,7 +3089,10 @@ class HomeDisplayCard extends HTMLElement {
       image.hidden = true;
     }
 
-    grid.hidden = !showSensors;
+    // The image and the sensor grid share a row, so they cannot both be
+    // up: a visible image takes it. Otherwise a sensors block that is
+    // also passing would draw straight through the sheet.
+    grid.hidden = !showSensors || Boolean(inlineImage);
 
 
     // fill: row - the image spans the bottom row, so the panel beside
