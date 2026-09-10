@@ -225,6 +225,47 @@ qualify than fit, the box clips at the bottom rather than letting them
 overlap — so keep the conditions tight enough that only what matters is
 showing at once.
 
+### `bottom`
+
+The bottom of the card works like `top_right`: a stack of blocks, each
+shown only when its conditions pass. Use it to put a printed sheet up
+instead of the sensor list on the days you have one.
+
+```yaml
+bottom:
+  - type: image
+    image: /api/image/serve/<id>/original
+    fill: full
+    show_when:
+      - binary_sensor.yidcal_upcoming_yomtov
+  - type: sensors        # the usual Daily Information list
+    show_when: []
+```
+
+- `sensors` — the Daily Information grid (the top-level `sensors` list).
+- `image` — an uploaded image, drawn with `object-fit: contain` so a
+  page of times is never cropped at the edges.
+
+`fill` decides how much room an image gets:
+
+| `fill` | Where | A 5000×3520 sheet on a 1440×505 screen |
+| --- | --- | --- |
+| `full` | The whole card, hiding the dashboard while it shows | 692×487 — 14% of original |
+| `row` | The whole bottom row; the side panel stands down | 270×190 |
+| `daily` | Inside the Daily Information box (default) | 270×190 |
+
+Height is the constraint, and every inner box is short, so `full` is the
+only one that makes a page of small print readable — `row` buys width
+the image cannot use. For a simple graphic the smaller fills are fine.
+
+Upload the image from the **Bottom Area** section of the editor; it uses
+Home Assistant's Image Upload integration, same as the bottom-right
+panel. An `image` block with no image set is skipped, so a later
+`sensors` block still shows.
+
+If no block qualifies, the Daily Information card is dropped rather than
+left as a titled blank.
+
 ### `status_position`
 
 Where the indicator row goes. One of:

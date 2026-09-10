@@ -6,7 +6,7 @@
  * default, or an uploaded image).
  */
 
-const CARD_VERSION = "1.9.0";
+const CARD_VERSION = "1.10.0";
 
 console.info(
   `%c HOME-DISPLAY-CARD %c v${CARD_VERSION} `,
@@ -178,6 +178,52 @@ const STATUS_POSITIONS = ["special", "daily_top", "daily_bottom", "footer"];
 
 const TOP_RIGHT_TYPES = ["special_times", "status", "sensors"];
 
+/* ============================================================
+   BOTTOM BLOCKS
+
+   The bottom area is the same idea as the top-right: a stack of
+   blocks, each shown only when its own conditions pass. An image
+   block is how a printed sheet gets on screen instead of the
+   sensor list.
+   ============================================================ */
+
+const BOTTOM_TYPES = ["sensors", "image"];
+
+// Where an image block is allowed to draw. Height is what limits a
+// dense sheet, and the bottom row is short, so "full" - taking over
+// the whole card - is the only one that makes a page of small print
+// legible.
+const IMAGE_FILLS = ["daily", "row", "full"];
+
+const DEFAULT_BOTTOM = [{ type: "sensors", show_when: [] }];
+
+function normalizeBottomBlock(block) {
+  if (typeof block === "string") {
+    return BOTTOM_TYPES.includes(block)
+      ? { type: block, show_when: [], image: "", fill: "daily" }
+      : null;
+  }
+
+  if (!block || typeof block !== "object") return null;
+
+  const type = BOTTOM_TYPES.includes(block.type) ? block.type : "sensors";
+
+  return {
+    type,
+    show_when: normalizeConditionList(block.show_when),
+    image: block.image || "",
+    fill: IMAGE_FILLS.includes(block.fill) ? block.fill : "daily",
+  };
+}
+
+function normalizeBottom(source) {
+  if (!Array.isArray(source)) {
+    return DEFAULT_BOTTOM.map(normalizeBottomBlock);
+  }
+
+  return source.map(normalizeBottomBlock).filter(Boolean);
+}
+
 const DEFAULT_TOP_RIGHT = [{ type: "special_times", show_when: [] }];
 
 function normalizeConditionList(value) {
@@ -311,6 +357,8 @@ export function normalizeConfig(config) {
 
   const top_right = normalizeTopRight(source.top_right);
 
+  const bottom = normalizeBottom(source.bottom);
+
   const status_position = STATUS_POSITIONS.includes(source.status_position)
     ? source.status_position
     : DEFAULT_STATUS_POSITION;
@@ -352,6 +400,7 @@ export function normalizeConfig(config) {
     status,
     status_position,
     top_right,
+    bottom,
     image_panel,
     forecast,
     layout,
@@ -402,6 +451,7 @@ class HomeDisplayCard extends HTMLElement {
       status: [],
       status_position: DEFAULT_STATUS_POSITION,
       top_right: [{ type: "special_times", show_when: [] }],
+      bottom: [{ type: "sensors", show_when: [] }],
       layout: { ...DEFAULT_LAYOUT },
       image_panel: { ...DEFAULT_IMAGE_PANEL },
       forecast: { ...DEFAULT_FORECAST },
@@ -996,6 +1046,65 @@ class HomeDisplayCard extends HTMLElement {
 
         /* This box is a narrow column, so indicators stack as rows
            rather than wrapping mid-chip. */
+        /* A sheet shown instead of the sensor list. contain, never
+           cover: cropping a page of times to fill a box loses the
+           times at the edges. */
+        .bottom-image {
+          /* Explicitly the sensor grid's row. Left to flow it would get
+             an implicit auto row sized to its own aspect ratio, which
+             for a page-shaped sheet is far taller than the card. */
+          grid-row: 3;
+
+          width: 100%;
+          height: 100%;
+
+          min-height: 0;
+
+          object-fit: contain;
+
+          display: block;
+
+          border-radius: 8px;
+        }
+
+        .bottom-image[hidden] {
+          display: none;
+        }
+
+        /* fill: full - the image takes the whole card. Height is what
+           limits a dense sheet and every inner box is short, so this is
+           the only placement that makes small print readable. */
+        .takeover {
+          position: absolute;
+          inset: 0;
+
+          padding: 9px;
+
+          background: #04131f;
+
+          /* Plain block, not a centring grid: with place-items the
+             image sizes itself against an auto grid area and grows past
+             the card. object-fit does the centring anyway. */
+          display: block;
+
+          overflow: hidden;
+        }
+
+        .takeover[hidden] {
+          display: none;
+        }
+
+        .takeover img {
+          width: 100%;
+          height: 100%;
+
+          object-fit: contain;
+        }
+
+        .page {
+          position: relative;
+        }
+
         .indicator-strip-special {
           flex-direction: column;
           align-items: stretch;
@@ -1199,7 +1308,7 @@ class HomeDisplayCard extends HTMLElement {
           grid-template-rows:
             auto
             auto
-            1fr
+            minmax(0, 1fr)
             auto;
 
           gap: 6px;
@@ -1349,6 +1458,8 @@ class HomeDisplayCard extends HTMLElement {
         }
 
         .daily-grid {
+          grid-row: 3;
+
           min-height: 0;
 
           overflow: hidden;
@@ -1867,6 +1978,12 @@ class HomeDisplayCard extends HTMLElement {
                 id="dailyGrid">
               </div>
 
+              <img
+                class="bottom-image"
+                id="bottomImage"
+                alt=""
+                hidden />
+
               <div
                 class="indicator-strip indicator-strip-bottom"
                 id="statusStripBottom"
@@ -1935,6 +2052,14 @@ class HomeDisplayCard extends HTMLElement {
 
 
         </main>
+
+
+        <div
+          class="takeover"
+          id="takeover"
+          hidden>
+          <img id="takeoverImage" alt="" />
+        </div>
 
       </div>
     `;
@@ -2158,6 +2283,9 @@ class HomeDisplayCard extends HTMLElement {
        ========================================================== */
 
     this.updateImagePanel();
+
+    // After the panel, so a full-width image can override it.
+    this.applyBottom();
   }
 
 
@@ -2894,6 +3022,94 @@ class HomeDisplayCard extends HTMLElement {
   }
 
 
+  visibleBottomBlocks() {
+    return this._config.bottom.filter(block =>
+      this.conditionsPass(block.show_when)
+    );
+  }
+
+
+  applyBottom() {
+
+    const grid = this.shadowRoot?.getElementById("dailyGrid");
+    const image = this.shadowRoot?.getElementById("bottomImage");
+    const takeover = this.shadowRoot?.getElementById("takeover");
+    const takeoverImg = this.shadowRoot?.getElementById("takeoverImage");
+    const dashboard = this.shadowRoot?.querySelector(".dashboard");
+    const middle = this.shadowRoot?.querySelector(".middle");
+    const panel = this.shadowRoot?.getElementById("imagePanel");
+    const dailyCard = this.shadowRoot?.querySelector(".daily-card");
+
+
+    if (
+      !grid || !image || !takeover || !takeoverImg ||
+      !dashboard || !middle || !panel || !dailyCard
+    ) {
+      return;
+    }
+
+
+    const blocks = this.visibleBottomBlocks();
+
+    const fullImage = blocks.find(
+      block => block.type === "image" && block.fill === "full" && block.image
+    );
+
+
+    // A full-card image replaces everything, so the rest of the
+    // dashboard stops rendering rather than sitting behind it.
+    if (fullImage) {
+      if (takeoverImg.getAttribute("src") !== fullImage.image) {
+        takeoverImg.setAttribute("src", fullImage.image);
+      }
+
+      takeover.hidden = false;
+      dashboard.hidden = true;
+
+      return;
+    }
+
+    takeover.hidden = true;
+    dashboard.hidden = false;
+
+
+    const inlineImage = blocks.find(
+      block => block.type === "image" && block.image
+    );
+
+    const showSensors = blocks.some(block => block.type === "sensors");
+
+
+    if (inlineImage) {
+      if (image.getAttribute("src") !== inlineImage.image) {
+        image.setAttribute("src", inlineImage.image);
+      }
+      image.hidden = false;
+    } else {
+      image.hidden = true;
+    }
+
+    grid.hidden = !showSensors;
+
+
+    // fill: row - the image spans the bottom row, so the panel beside
+    // it stands down while the image is showing. Uses the panel's own
+    // display/single-column mechanism rather than a second one, since
+    // updateImagePanel() runs first and would undo anything else.
+    const wantsRow = inlineImage && inlineImage.fill === "row";
+
+    if (wantsRow) {
+      panel.style.display = "none";
+      middle.classList.add("single-column");
+    }
+
+
+    // Nothing to show in the card at all: drop it rather than leave a
+    // titled blank.
+    dailyCard.hidden = !showSensors && !inlineImage;
+  }
+
+
   applyTopRight() {
 
     const box = this.shadowRoot?.getElementById("specialTimes");
@@ -3300,6 +3516,10 @@ class HomeDisplayCardEditor extends HTMLElement {
       sensors: this._config.sensors.map(sensor => ({ ...sensor })),
       status: this._config.status.map(entry => ({ ...entry })),
       status_position: this._config.status_position,
+      bottom: this._config.bottom.map(block => ({
+        ...block,
+        show_when: [...block.show_when],
+      })),
       top_right: this._config.top_right.map(block => ({
         ...block,
         show_when: [...block.show_when],
@@ -3321,6 +3541,7 @@ class HomeDisplayCardEditor extends HTMLElement {
       status: next.status,
       status_position: next.status_position,
       top_right: next.top_right,
+      bottom: next.bottom,
       layout: next.layout,
       image_panel: next.image_panel,
       forecast: next.forecast,
@@ -3494,6 +3715,7 @@ class HomeDisplayCardEditor extends HTMLElement {
     const sectionBuilders = [
       () => this._buildStatusSection(),
       () => this._buildTopRightSection(),
+      () => this._buildBottomSection(),
       () => this._buildSensorSection(),
       () => this._buildForecastSection(),
       () => this._buildImagePanelSection(),
@@ -3776,6 +3998,209 @@ class HomeDisplayCardEditor extends HTMLElement {
     removeBlock.addEventListener("click", () => {
       this._updateConfig((cfg) => {
         cfg.top_right.splice(index, 1);
+      });
+      this._render();
+    });
+    row.appendChild(removeBlock);
+
+    return row;
+  }
+
+  _buildBottomSection() {
+    const section = document.createElement("div");
+    section.className = "section";
+
+    const title = document.createElement("h3");
+    title.textContent = "Bottom Area";
+    section.appendChild(title);
+
+    const hint = document.createElement("p");
+    hint.className = "hint";
+    hint.textContent =
+      "What fills the bottom of the card. Same idea as the top-right box: each block shows only when its conditions pass. Use an image block to put a printed sheet up instead of the sensor list.";
+    section.appendChild(hint);
+
+    const list = document.createElement("div");
+    list.className = "sensor-list";
+
+    this._config.bottom.forEach((block, index) => {
+      list.appendChild(this._buildBottomBlock(block, index));
+    });
+
+    section.appendChild(list);
+
+    const addButton = document.createElement("button");
+    addButton.type = "button";
+    addButton.className = "add-button";
+    addButton.textContent = "+ Add block";
+
+    addButton.addEventListener("click", () => {
+      this._updateConfig((cfg) => {
+        cfg.bottom.push({
+          type: "sensors",
+          show_when: [],
+          image: "",
+          fill: "daily",
+        });
+      });
+      this._render();
+    });
+
+    section.appendChild(addButton);
+
+    return section;
+  }
+
+  _buildBottomBlock(block, index) {
+    const row = document.createElement("div");
+    row.className = "sensor-row";
+
+    const update = (patch) => {
+      this._updateConfig((cfg) => {
+        cfg.bottom[index] = { ...cfg.bottom[index], ...patch };
+      });
+    };
+
+    const typeWrap = document.createElement("div");
+    typeWrap.className = "field";
+
+    const typeLabel = document.createElement("label");
+    typeLabel.textContent = `Block ${index + 1}`;
+
+    const typeSelect = document.createElement("select");
+    typeSelect.innerHTML = `
+      <option value="sensors">Daily Information sensors</option>
+      <option value="image">Image (uploaded sheet)</option>
+    `;
+    typeSelect.value = block.type;
+
+    typeSelect.addEventListener("change", () => {
+      update({ type: typeSelect.value });
+      this._render();
+    });
+
+    typeWrap.append(typeLabel, typeSelect);
+    row.appendChild(typeWrap);
+
+    if (block.type === "image") {
+      if (block.image) {
+        const preview = document.createElement("img");
+        preview.className = "image-preview";
+        preview.src = block.image;
+        row.appendChild(preview);
+      }
+
+      const fillWrap = document.createElement("div");
+      fillWrap.className = "field";
+
+      const fillLabel = document.createElement("label");
+      fillLabel.textContent = "Size";
+
+      const fillSelect = document.createElement("select");
+      fillSelect.innerHTML = `
+        <option value="full">Whole card (best for a dense sheet)</option>
+        <option value="row">Full bottom row</option>
+        <option value="daily">Daily Information box only</option>
+      `;
+      fillSelect.value = block.fill;
+      fillSelect.addEventListener("change", () =>
+        update({ fill: fillSelect.value })
+      );
+
+      fillWrap.append(fillLabel, fillSelect);
+      row.appendChild(fillWrap);
+
+      const fillHint = document.createElement("p");
+      fillHint.className = "hint";
+      fillHint.textContent =
+        "Height is what limits a printed sheet, and the bottom row is short — a page of small print is only readable at 'Whole card', which hides the rest of the dashboard while it shows.";
+      row.appendChild(fillHint);
+
+      const fileInput = document.createElement("input");
+      fileInput.type = "file";
+      fileInput.accept = "image/*";
+      fileInput.className = "file-input";
+
+      const status = document.createElement("p");
+      status.className = "hint";
+
+      fileInput.addEventListener("change", async () => {
+        const file = fileInput.files && fileInput.files[0];
+        if (!file) return;
+
+        status.textContent = "Uploading…";
+
+        try {
+          const url = await this._uploadImage(file);
+          update({ image: url });
+          this._render();
+        } catch (err) {
+          status.textContent = `Upload failed: ${err.message}`;
+        }
+      });
+
+      row.append(fileInput, status);
+    }
+
+    const condHint = document.createElement("p");
+    condHint.className = "hint";
+    condHint.textContent =
+      "Show this block when ANY of these is on. Leave empty to always show it.";
+    row.appendChild(condHint);
+
+    block.show_when.forEach((entityId, conditionIndex) => {
+      const condRow = document.createElement("div");
+      condRow.className = "field";
+
+      condRow.appendChild(
+        this._buildEntityField({
+          label: `Show when ${conditionIndex + 1}`,
+          value: entityId,
+          includeDomains: ["binary_sensor", "input_boolean", "switch", "sensor"],
+          onChange: (value) => {
+            this._updateConfig((cfg) => {
+              cfg.bottom[index].show_when[conditionIndex] = value;
+            });
+          },
+        })
+      );
+
+      const removeCondition = document.createElement("button");
+      removeCondition.type = "button";
+      removeCondition.className = "remove-button";
+      removeCondition.textContent = "✕";
+      removeCondition.title = "Remove condition";
+      removeCondition.addEventListener("click", () => {
+        this._updateConfig((cfg) => {
+          cfg.bottom[index].show_when.splice(conditionIndex, 1);
+        });
+        this._render();
+      });
+
+      condRow.appendChild(removeCondition);
+      row.appendChild(condRow);
+    });
+
+    const addCondition = document.createElement("button");
+    addCondition.type = "button";
+    addCondition.className = "add-button";
+    addCondition.textContent = "+ Add condition";
+    addCondition.addEventListener("click", () => {
+      this._updateConfig((cfg) => {
+        cfg.bottom[index].show_when.push("");
+      });
+      this._render();
+    });
+    row.appendChild(addCondition);
+
+    const removeBlock = document.createElement("button");
+    removeBlock.type = "button";
+    removeBlock.className = "remove-button";
+    removeBlock.textContent = "✕";
+    removeBlock.title = "Remove block";
+    removeBlock.addEventListener("click", () => {
+      this._updateConfig((cfg) => {
+        cfg.bottom.splice(index, 1);
       });
       this._render();
     });

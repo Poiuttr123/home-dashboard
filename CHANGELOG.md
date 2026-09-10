@@ -215,3 +215,20 @@ proper Lovelace custom card:
   indicators here; an explicit `status` block overrides it either way.
 - Existing cards are unchanged: with no `top_right` configured the box is
   a single always-on Special Times block, exactly as before.
+
+## v1.10.0
+
+- **The bottom area becomes conditional blocks too** (`bottom`), matching
+  `top_right`. The Daily Information sensor list is now just one block,
+  so it no longer has to be on all the time.
+- **New `image` block** for putting an uploaded sheet on screen instead,
+  with `fill: full | row | daily`. Uploaded from the editor through Home
+  Assistant's Image Upload integration, drawn with `object-fit: contain`
+  so a page of times is never cropped.
+- `fill: full` hides the dashboard while the image shows. Height is what
+  limits a printed sheet and every inner box is short: a 5000×3520 sheet
+  renders 692×487 at `full` against 270×190 in the Daily Information box,
+  so `full` is the only placement that makes small print readable.
+- An image block with no image is skipped rather than blanking the card,
+  and if nothing qualifies the Daily Information card is dropped instead
+  of showing an empty titled box.
