@@ -6,7 +6,7 @@
  * default, or an uploaded image).
  */
 
-const CARD_VERSION = "1.12.0";
+const CARD_VERSION = "1.13.0";
 
 console.info(
   `%c HOME-DISPLAY-CARD %c v${CARD_VERSION} `,
@@ -194,7 +194,18 @@ const TOP_RIGHT_TYPES = ["special_times", "status", "sensors"];
    sensor list.
    ============================================================ */
 
-const BOTTOM_TYPES = ["sensors", "image"];
+const BOTTOM_TYPES = ["sensors", "image", "schedule"];
+
+// The shul schedule this week, straight off the sheet: one entity with
+// every row on it, grouped by day. No per-row config, because the rows
+// are rewritten weekly and anything naming them goes stale.
+const DEFAULT_SCHEDULE_ENTITY = "sensor.shul_zmanim";
+
+const MAX_SCHEDULE_DAYS = 4;
+
+// A day label or zman name with Hebrew in it means the whole block
+// reads right to left, the way the printed luach does.
+const HEBREW_RE = /[\u0590-\u05FF]/;
 
 // Where an image block is allowed to draw. Height is what limits a
 // dense sheet, and the bottom row is short. "side" folds the
@@ -207,7 +218,14 @@ const DEFAULT_BOTTOM = [{ type: "sensors", show_when: [] }];
 function normalizeBottomBlock(block) {
   if (typeof block === "string") {
     return BOTTOM_TYPES.includes(block)
-      ? { type: block, show_when: [], image: "", fill: "daily" }
+      ? {
+          type: block,
+          show_when: [],
+          image: "",
+          fill: "daily",
+          entity: DEFAULT_SCHEDULE_ENTITY,
+          notes: true,
+        }
       : null;
   }
 
@@ -220,6 +238,11 @@ function normalizeBottomBlock(block) {
     show_when: normalizeConditionList(block.show_when),
     image: block.image || "",
     fill: IMAGE_FILLS.includes(block.fill) ? block.fill : "daily",
+    entity:
+      typeof block.entity === "string" && block.entity
+        ? block.entity
+        : DEFAULT_SCHEDULE_ENTITY,
+    notes: block.notes !== false,
   };
 }
 
@@ -1305,6 +1328,139 @@ class HomeDisplayCard extends HTMLElement {
            ====================================================== */
 
         /* ======================================================
+           SHUL SCHEDULE
+
+           This week's sheet, a day to a column, shaped like the
+           printed luach: name, a dotted leader, the time, and the
+           note underneath.
+           ====================================================== */
+
+        .schedule {
+          /* The same row the sensor grid takes. Left to the implicit
+             grid it lands in an auto row and sits short of the card's
+             bottom edge with the space going nowhere. */
+          grid-row: 3;
+
+          min-width: 0;
+          min-height: 0;
+
+          display: grid;
+
+          gap: clamp(5px, .9vw, 11px);
+
+          overflow: hidden;
+        }
+
+        .schedule[hidden] {
+          display: none;
+        }
+
+        .schedule-day {
+          min-width: 0;
+          min-height: 0;
+
+          display: flex;
+          flex-direction: column;
+
+          /* Spread the rows down the column rather than stacking them
+             at the top - a luach fills its page. */
+          justify-content: space-between;
+
+          gap: 2px;
+
+          padding: 5px clamp(6px, .8vw, 10px) 4px;
+
+          background: rgba(255,255,255,.032);
+
+          border: 1px solid rgba(255,255,255,.06);
+
+          border-radius: 9px;
+
+          overflow: hidden;
+        }
+
+        .schedule-day-label {
+          color: #6fc0ef;
+
+          font-size: clamp(9px, min(1vw, 1.7vh), 13px);
+          font-weight: 800;
+          letter-spacing: .3px;
+
+          text-align: center;
+
+          padding-bottom: 3px;
+          margin-bottom: 2px;
+
+          border-bottom: 1px solid rgba(110,190,235,.22);
+
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .schedule-row {
+          min-height: 0;
+        }
+
+        .schedule-line {
+          display: flex;
+          align-items: baseline;
+          gap: 5px;
+        }
+
+        .schedule-name {
+          font-size: clamp(10px, min(1.15vw, 1.9vh), 15px);
+          font-weight: 700;
+
+          white-space: nowrap;
+        }
+
+        /* The leader, so the eye can run from a name to its time the
+           way it does on paper. */
+        .schedule-dots {
+          flex: 1;
+
+          min-width: 6px;
+
+          border-bottom: 1px dotted rgba(255,255,255,.22);
+
+          transform: translateY(-3px);
+        }
+
+        .schedule-time {
+          color: #ffd98a;
+
+          font-size: clamp(10px, min(1.15vw, 1.9vh), 15px);
+          font-weight: 800;
+
+          white-space: nowrap;
+
+          font-variant-numeric: tabular-nums;
+
+          /* Isolated, or "3:15 PM" comes out as "PM 3:15" in an RTL row. */
+          direction: ltr;
+          unicode-bidi: isolate;
+        }
+
+        .schedule-note {
+          color: #9fbdd2;
+
+          font-size: clamp(7.5px, min(.85vw, 1.4vh), 11px);
+          line-height: 1.25;
+
+          padding-inline-start: 2px;
+
+          /* Each note picks its own direction - sheets mix Hebrew and
+             English freely, sometimes inside one note. */
+          unicode-bidi: plaintext;
+
+          overflow: hidden;
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+        }
+
+        /* ======================================================
            SIDE SHEET
 
            fill: side - the זמני היום strip folds into two columns
@@ -2087,6 +2243,11 @@ class HomeDisplayCard extends HTMLElement {
                 id="bottomImage"
                 alt=""
                 hidden />
+
+              <div
+                class="schedule"
+                id="schedule"
+                hidden></div>
 
               <div
                 class="indicator-strip indicator-strip-bottom"
@@ -3065,7 +3226,12 @@ class HomeDisplayCard extends HTMLElement {
 
     const sideSheet = Boolean(this.sideImageBlock());
 
-    const hideFooter = sideSheet || Boolean(this.inlineImageBlock());
+    // A schedule fills the row with 18-odd lines of small print, so it
+    // wants the footer's share exactly the way a sheet does.
+    const hideFooter =
+      sideSheet ||
+      Boolean(this.inlineImageBlock()) ||
+      Boolean(this.scheduleBlock() && !this.inlineImageBlock());
 
     if (footer) footer.hidden = hideFooter;
 
@@ -3317,6 +3483,131 @@ class HomeDisplayCard extends HTMLElement {
   }
 
 
+  scheduleBlock() {
+    return this.visibleBottomBlocks().find(
+      block => block.type === "schedule"
+    );
+  }
+
+
+  // The days this week's sheet is publishing. A row past its remove-by
+  // is already gone upstream, so there is nothing to filter here.
+  scheduleDays(block) {
+    const days = this.getEntity(block.entity)?.attributes?.days;
+
+    return Array.isArray(days)
+      ? days
+          .filter(day => Array.isArray(day?.zmanim) && day.zmanim.length)
+          .slice(0, MAX_SCHEDULE_DAYS)
+      : [];
+  }
+
+
+  /* ==========================================================
+     SHUL SCHEDULE
+
+     Drawn from the sheet's own structure rather than a list of
+     entities: the rows are rewritten every week, so anything
+     naming them individually goes stale the moment the week
+     turns over.
+     ========================================================== */
+
+  renderSchedule(block) {
+
+    const host = this.shadowRoot?.getElementById("schedule");
+
+    if (!host) return false;
+
+
+    const days = this.scheduleDays(block);
+
+    if (!days.length) {
+      host.hidden = true;
+      host.textContent = "";
+
+      return false;
+    }
+
+
+    // Redraw only when something actually changed - this runs on every
+    // state update and the sheet changes about once a week.
+    const signature =
+      JSON.stringify(
+        days.map(day => [
+          day.day_label,
+          day.zmanim.map(z => [z.name, z.time, z.notes]),
+        ])
+      ) + `|${block.notes}`;
+
+    host.hidden = false;
+
+    if (host.dataset.signature === signature) return true;
+
+    host.dataset.signature = signature;
+    host.textContent = "";
+
+
+    const hebrew = HEBREW_RE.test(signature);
+
+    host.style.direction = hebrew ? "rtl" : "ltr";
+
+    host.style.gridTemplateColumns =
+      `repeat(${days.length}, minmax(0, 1fr))`;
+
+
+    for (const day of days) {
+
+      const column = document.createElement("div");
+      column.className = "schedule-day";
+
+      const label = document.createElement("div");
+      label.className = "schedule-day-label";
+      label.textContent = day.day_label || "";
+      column.appendChild(label);
+
+
+      for (const zman of day.zmanim) {
+
+        const row = document.createElement("div");
+        row.className = "schedule-row";
+
+        const line = document.createElement("div");
+        line.className = "schedule-line";
+
+        const name = document.createElement("span");
+        name.className = "schedule-name";
+        name.textContent = zman.name || "";
+
+        const dots = document.createElement("span");
+        dots.className = "schedule-dots";
+
+        const time = document.createElement("span");
+        time.className = "schedule-time";
+        // A sheet cell that never got a time reads as "0" once Google
+        // has had its way with it. Blank is the honest rendering.
+        time.textContent =
+          zman.time && zman.time !== "0" ? zman.time : "";
+
+        line.append(name, dots, time);
+        row.appendChild(line);
+
+        if (block.notes && zman.notes) {
+          const note = document.createElement("div");
+          note.className = "schedule-note";
+          note.textContent = zman.notes;
+          row.appendChild(note);
+        }
+
+        column.appendChild(row);
+      }
+
+      host.appendChild(column);
+    }
+
+    return true;
+  }
+
+
   // A side sheet draws outside the Daily Information card entirely, so
   // it is found separately from the images that draw inside it.
   sideImageBlock() {
@@ -3411,21 +3702,37 @@ class HomeDisplayCard extends HTMLElement {
       image.hidden = true;
     }
 
-    // The image and the sensor grid share a row, so they cannot both be
-    // up: a visible image takes it. Otherwise a sensors block that is
-    // also passing would draw straight through the sheet.
-    grid.hidden = !showSensors || Boolean(inlineImage);
+    // The schedule shares the row too, and is outranked by an image:
+    // an uploaded sheet is a deliberate override for the day, so it
+    // wins over the standing one.
+    const scheduleBlock = this.scheduleBlock();
+
+    const schedule =
+      scheduleBlock && !inlineImage
+        ? this.renderSchedule(scheduleBlock)
+        : false;
+
+    if (!schedule) {
+      const host = this.shadowRoot?.getElementById("schedule");
+      if (host) host.hidden = true;
+    }
 
 
-    // The heading names the sensor list. With only a sheet in the card
-    // it labels nothing and just costs the sheet height.
+    // The image, the schedule and the sensor grid share a row, so only
+    // one can be up. Otherwise a sensors block that is also passing
+    // would draw straight through whatever took the row.
+    grid.hidden = !showSensors || Boolean(inlineImage) || schedule;
+
+
+    // The heading names the sensor list. Over a sheet or a schedule it
+    // labels nothing - the day headings do that - and just costs height.
     const title = this.shadowRoot?.getElementById("dailyTitle");
 
     if (title) {
       // Keyed off whether the grid is actually drawing, not whether a
       // sensors block passed its conditions: a block can pass and still
-      // be outranked by the image, which is the usual case here.
-      title.hidden = grid.hidden && Boolean(inlineImage);
+      // be outranked, which is the usual case here.
+      title.hidden = grid.hidden && (Boolean(inlineImage) || schedule);
     }
 
 
@@ -3443,7 +3750,7 @@ class HomeDisplayCard extends HTMLElement {
 
     // Nothing to show in the card at all: drop it rather than leave a
     // titled blank.
-    dailyCard.hidden = !showSensors && !inlineImage;
+    dailyCard.hidden = !showSensors && !inlineImage && !schedule;
   }
 
 
@@ -4407,6 +4714,7 @@ class HomeDisplayCardEditor extends HTMLElement {
     const typeSelect = document.createElement("select");
     typeSelect.innerHTML = `
       <option value="sensors">Daily Information sensors</option>
+      <option value="schedule">Shul schedule (from the sheet)</option>
       <option value="image">Image (uploaded sheet)</option>
     `;
     typeSelect.value = block.type;
@@ -4418,6 +4726,43 @@ class HomeDisplayCardEditor extends HTMLElement {
 
     typeWrap.append(typeLabel, typeSelect);
     row.appendChild(typeWrap);
+
+    if (block.type === "schedule") {
+      row.appendChild(
+        this._buildEntityField({
+          label: "Schedule entity",
+          value: block.entity,
+          includeDomains: ["sensor"],
+          onChange: value =>
+            update({ entity: value || DEFAULT_SCHEDULE_ENTITY }),
+        })
+      );
+
+      const notesWrap = document.createElement("label");
+      notesWrap.className = "toggle-field";
+
+      const notesBox = document.createElement("input");
+      notesBox.type = "checkbox";
+      notesBox.checked = block.notes;
+      notesBox.addEventListener("change", () =>
+        update({ notes: notesBox.checked })
+      );
+
+      const notesText = document.createElement("span");
+      notesText.textContent = "Show the notes under each row";
+
+      notesWrap.append(notesBox, notesText);
+      row.appendChild(notesWrap);
+
+      const scheduleHint = document.createElement("p");
+      scheduleHint.className = "hint";
+      scheduleHint.textContent =
+        "Draws this week's sheet straight from the entity, a day to a " +
+        "column — no list of rows to keep in step, because the sheet is " +
+        "rewritten every week and anything naming its rows goes stale. " +
+        "Rows appear, change and disappear as you edit the sheet.";
+      row.appendChild(scheduleHint);
+    }
 
     if (block.type === "image") {
       if (block.image) {

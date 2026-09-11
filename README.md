@@ -243,8 +243,44 @@ bottom:
 ```
 
 - `sensors` — the Daily Information grid (the top-level `sensors` list).
+- `schedule` — this week's shul schedule, straight off the sheet.
 - `image` — an uploaded image, drawn with `object-fit: contain` so a
   page of times is never cropped at the edges.
+
+### `schedule`
+
+Draws a whole week's zmanim sheet, a day to a column, shaped like the
+printed luach: the zman, a dotted leader, the time, and the note under
+it.
+
+```yaml
+bottom:
+  - type: schedule
+    entity: sensor.shul_zmanim   # default
+    notes: true                  # small note under each row
+    show_when: []
+```
+
+It reads the entity's `days` attribute — the structure the
+[Shul Zmanim](https://github.com/Poiuttr123/custom-zmanim-ha-dashboard)
+integration builds from a Google Sheet — so there is **no list of rows to
+keep in step**. That matters more than it sounds: the sheet is rewritten
+every week, its row keys change with it, and a card naming those keys
+shows `unavailable` the first Sunday nobody notices. Rows appear, change
+and disappear as the sheet is edited, including rows that expire by
+themselves through the sheet's `remove by` column.
+
+The block reads right-to-left when the sheet is in Hebrew and
+left-to-right when it isn't, decided per sheet. Times are isolated so
+`3:15 PM` doesn't come out as `PM 3:15` in an RTL row, notes set their
+own direction line by line, and a row whose time cell is empty (Google
+hands those over as `0`) shows no time rather than a bare zero.
+
+Up to four days are drawn. The **Daily Information heading** and the
+**footer** stand down while it shows — the day headings already label
+the box, and 18 lines of small print want the height. An `image` block
+outranks it, so an uploaded sheet stays the deliberate override for a
+day the schedule can't cover.
 
 `fill` decides how much room an image gets:
 

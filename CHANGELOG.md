@@ -321,3 +321,23 @@ proper Lovelace custom card:
   applies to every other mode, and everything returns the moment the
   sheet stops showing.
 - Pick it from **Size** in the editor's Bottom Area section.
+
+## v1.13.0
+
+- **New bottom block: `schedule`.** Draws a whole week's shul zmanim from
+  `sensor.shul_zmanim`'s `days` attribute — a day to a column, zman ·
+  dotted leader · time, note underneath, shaped like the printed luach.
+- It takes **no list of rows**. The sheet behind it is rewritten weekly
+  and its row keys change with it, so a card naming those keys quietly
+  rots: on this setup `skver_tish_day` and `skver_gitvoch` were already
+  `unavailable` and `skver_kabalas_shabbos` — labelled Kabbolas Shabbos —
+  was showing מנחה. Reading the sheet's own structure ends that whole
+  class of breakage.
+- Hebrew sheets render right-to-left and English ones don't, decided per
+  sheet. Times are bidi-isolated so `3:15 PM` doesn't invert inside an
+  RTL row, notes set their own direction line by line, and a time cell
+  Google hands over as `0` draws blank rather than as a zero.
+- The Daily Information heading and the footer stand down while it shows,
+  as they already do for a sheet image. An `image` block outranks it.
+- Rows that expire through the sheet's `remove by` column simply aren't
+  in the data, so nothing here has to know about them.
