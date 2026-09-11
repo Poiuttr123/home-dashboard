@@ -6,7 +6,7 @@
  * default, or an uploaded image).
  */
 
-const CARD_VERSION = "1.11.0";
+const CARD_VERSION = "1.11.1";
 
 console.info(
   `%c HOME-DISPLAY-CARD %c v${CARD_VERSION} `,
@@ -149,6 +149,13 @@ const DEFAULT_LAYOUT = {
 const MIN_ZMANIM_FR = 6;
 const MAX_ZMANIM_FR = 30;
 const MAX_BOTTOM_CROP = 40;
+
+// Below this the host clearly has no height of its own to divide, so
+// the card measures the window instead. A dashboard card shorter than
+// this is not readable anyway.
+const MIN_PAGE_HEIGHT = 120;
+
+const PAGE_HEIGHT_TTL = 1000;
 
 function normalizeLayout(source) {
   const provided = source || {};
@@ -490,6 +497,17 @@ class HomeDisplayCard extends HTMLElement {
       this.startClock();
     }
 
+    // A height measured against the old window is worth nothing, so
+    // throw it away and lay the card out again at the new size.
+    if (!this._resizeListener) {
+      this._resizeListener = () => {
+        this._pageHeightKey = null;
+        this.applyLayout();
+      };
+
+      window.addEventListener("resize", this._resizeListener);
+    }
+
     if (this._hass) {
       this.syncForecastSubscriptions();
     }
@@ -499,6 +517,11 @@ class HomeDisplayCard extends HTMLElement {
     if (this._clockTimer) {
       clearInterval(this._clockTimer);
       this._clockTimer = null;
+    }
+
+    if (this._resizeListener) {
+      window.removeEventListener("resize", this._resizeListener);
+      this._resizeListener = null;
     }
 
     this.unsubscribeForecasts();
@@ -2940,7 +2963,7 @@ class HomeDisplayCard extends HTMLElement {
     const dashboard = this.shadowRoot?.querySelector(".dashboard");
 
 
-    if (!page || !dashboard) return;
+    if (!page || !dashboard || !this._config) return;
 
 
     const { zmanim, bottom_crop } = this._config.layout;
@@ -2976,9 +2999,95 @@ class HomeDisplayCard extends HTMLElement {
     dashboard.style.gridTemplateRows = rows;
 
 
-    page.style.height = bottom_crop
-      ? `${100 - bottom_crop}%`
-      : "";
+    // A percentage is only worth anything against a height the view
+    // actually handed us. When it handed us none, crop the height the
+    // card measured for itself instead.
+    const measured = this.measuredPageHeight();
+
+    const keep = (100 - bottom_crop) / 100;
+
+    page.style.height = measured
+      ? `${Math.round(measured * keep)}px`
+      : bottom_crop
+        ? `${100 - bottom_crop}%`
+        : "";
+  }
+
+
+  /* ==========================================================
+     PAGE HEIGHT
+
+     The card splits one height into rows, so it needs a definite
+     one to split. A Lovelace view usually gives the card its
+     height - but not always, and a DW Spectrum tile is one of the
+     views that gives none. Then `height: 100%` quietly falls back
+     to auto, every row grows to fit its contents, and a sheet in
+     the daily box drags the dashboard off the bottom of the
+     screen.
+
+     So when the view gives us nothing, measure the window and use
+     that. Only in landscape: a phone in portrait is taller than it
+     is wide, the card stacks up and scrolls there, and that reads
+     well - squeezing it into one screen would not.
+     ========================================================== */
+
+  // Returns the height to pin the page to, or 0 to leave the CSS
+  // rule alone.
+  measuredPageHeight() {
+
+    // Probing costs a reflow and this runs on every state update, so
+    // hold the answer for a second. Not longer: the view can hand the
+    // card a height a moment after it first draws, and the card should
+    // notice and step back out of the way.
+    const now = Date.now();
+
+    const key = `${window.innerWidth}x${window.innerHeight}`;
+
+    if (
+      this._pageHeightKey === key &&
+      now - this._pageHeightAt < PAGE_HEIGHT_TTL
+    ) {
+      return this._pageHeight;
+    }
+
+
+    const page = this.shadowRoot?.querySelector(".page");
+
+    if (!page) return 0;
+
+
+    // Collapse the page and see whether the host still has a height.
+    // If it does, the view gave it one and we should not second-guess
+    // it. If it goes to nothing, the host was only ever as tall as
+    // what is inside it.
+    const previous = page.style.height;
+
+    page.style.height = "0px";
+
+    const given = this.getBoundingClientRect();
+
+    page.style.height = previous;
+
+
+    let height = 0;
+
+    if (
+      given.height < MIN_PAGE_HEIGHT &&
+      window.innerWidth > window.innerHeight
+    ) {
+      height =
+        Math.max(
+          MIN_PAGE_HEIGHT,
+          window.innerHeight - Math.max(0, given.top)
+        );
+    }
+
+
+    this._pageHeightKey = key;
+    this._pageHeightAt = now;
+    this._pageHeight = height;
+
+    return height;
   }
 
 

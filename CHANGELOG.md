@@ -267,3 +267,22 @@ proper Lovelace custom card:
   65% more area, with everything else on the dashboard untouched.
 - Both return as soon as the image stops showing. A `fill: full` image
   hides the dashboard anyway, so it leaves the footer and heading alone.
+
+## v1.11.1
+
+- **Fixes the dashboard running off the bottom of the screen on a DW
+  Spectrum tile.** The card divides one height into rows, so it needs a
+  definite height to divide. A Lovelace view usually hands the card one,
+  but the DW tile hands it none — and then `height: 100%` quietly falls
+  back to `auto`, every row grows to fit its contents, and a sheet in the
+  daily box dragged the dashboard to 1186px inside a 499px window.
+- The card now probes whether the view gave it a height at all, and when
+  it did not, measures the window itself. In an auto-height container a
+  951x499 window now lays out identically to a fixed one.
+- `layout.bottom_crop` worked the same way — a percentage of a height
+  nobody had handed out — so it had been doing nothing on that tile. It
+  now crops the measured height, and still crops the view's height when
+  the view provides one.
+- A phone in portrait is left alone: it is meant to stack up and scroll,
+  and squeezing the whole dashboard into one screen there would make it
+  unreadable.
