@@ -6,7 +6,7 @@
  * default, or an uploaded image).
  */
 
-const CARD_VERSION = "1.11.2";
+const CARD_VERSION = "1.12.0";
 
 console.info(
   `%c HOME-DISPLAY-CARD %c v${CARD_VERSION} `,
@@ -197,10 +197,10 @@ const TOP_RIGHT_TYPES = ["special_times", "status", "sensors"];
 const BOTTOM_TYPES = ["sensors", "image"];
 
 // Where an image block is allowed to draw. Height is what limits a
-// dense sheet, and the bottom row is short, so "full" - taking over
-// the whole card - is the only one that makes a page of small print
-// legible.
-const IMAGE_FILLS = ["daily", "row", "full"];
+// dense sheet, and the bottom row is short. "side" folds the
+// זמני היום strip into two columns and gives the image everything
+// below the top row beside it; "full" takes over the whole card.
+const IMAGE_FILLS = ["daily", "row", "side", "full"];
 
 const DEFAULT_BOTTOM = [{ type: "sensors", show_when: [] }];
 
@@ -1304,6 +1304,74 @@ class HomeDisplayCard extends HTMLElement {
            BOTTOM
            ====================================================== */
 
+        /* ======================================================
+           SIDE SHEET
+
+           fill: side - the זמני היום strip folds into two columns
+           down the left and the sheet takes everything beside it,
+           which is the most height an image can get without hiding
+           the dashboard outright.
+           ====================================================== */
+
+        .side-card {
+          min-width: 0;
+          min-height: 0;
+
+          overflow: hidden;
+
+          padding: clamp(5px, .8vh, 9px);
+
+          display: grid;
+        }
+
+        .side-card[hidden] {
+          display: none;
+        }
+
+        .side-image {
+          width: 100%;
+          height: 100%;
+
+          min-width: 0;
+          min-height: 0;
+
+          object-fit: contain;
+
+          border-radius: 8px;
+        }
+
+        .dashboard.side-sheet {
+          grid-template-columns:
+            minmax(0, 0.92fr)
+            minmax(0, 1.58fr);
+        }
+
+        .dashboard.side-sheet .top {
+          grid-column: 1 / -1;
+          grid-row: 1;
+        }
+
+        .dashboard.side-sheet .zmanim {
+          grid-column: 1;
+          grid-row: 2;
+        }
+
+        .dashboard.side-sheet .side-card {
+          grid-column: 2;
+          grid-row: 2;
+        }
+
+        /* Six tiles, two across - so three rows, and each one gets a
+           third of the height instead of all six sharing a strip. */
+        .dashboard.side-sheet .zmanim-grid {
+          grid-template-columns:
+            repeat(2, minmax(0, 1fr));
+        }
+
+        .middle[hidden] {
+          display: none;
+        }
+
         .middle {
           display: grid;
 
@@ -2085,6 +2153,24 @@ class HomeDisplayCard extends HTMLElement {
 
 
           </div>
+
+
+          <!-- ===================================================
+               SIDE SHEET
+
+               Lives out here rather than inside .middle so the grid
+               can place it beside the זמני היום strip.
+               =================================================== -->
+
+          <section
+            class="card side-card"
+            id="sideCard"
+            hidden>
+            <img
+              class="side-image"
+              id="sideImage"
+              alt="" />
+          </section>
 
 
         </main>
@@ -2977,26 +3063,39 @@ class HomeDisplayCard extends HTMLElement {
     // and hands its share to the sheet.
     const footer = this.shadowRoot?.querySelector(".footer");
 
-    const hideFooter = Boolean(this.inlineImageBlock());
+    const sideSheet = Boolean(this.sideImageBlock());
+
+    const hideFooter = sideSheet || Boolean(this.inlineImageBlock());
 
     if (footer) footer.hidden = hideFooter;
 
 
-    let rows =
-      `minmax(0, ${LAYOUT_TOP_FR}fr)` +
-      ` minmax(0, ${zmanim}fr)`;
+    // A side sheet puts the זמני היום strip and the sheet next to each
+    // other, so the card is two rows rather than four and the zmanim
+    // share no longer divides anything - the columns do that instead.
+    dashboard.classList.toggle("side-sheet", sideSheet);
 
-    if (hideFooter) {
-      // Its track goes too, not just its contents, or the row it left
-      // behind stays as empty space.
-      rows += ` minmax(0, ${daily + LAYOUT_FOOTER_FR}fr)`;
+    if (sideSheet) {
+      dashboard.style.gridTemplateRows =
+        `minmax(0, ${LAYOUT_TOP_FR}fr)` +
+        ` minmax(0, ${100 - LAYOUT_TOP_FR}fr)`;
     } else {
-      rows +=
-        ` minmax(0, ${daily}fr)` +
-        ` minmax(0, ${LAYOUT_FOOTER_FR}fr)`;
-    }
+      let rows =
+        `minmax(0, ${LAYOUT_TOP_FR}fr)` +
+        ` minmax(0, ${zmanim}fr)`;
 
-    dashboard.style.gridTemplateRows = rows;
+      if (hideFooter) {
+        // Its track goes too, not just its contents, or the row it left
+        // behind stays as empty space.
+        rows += ` minmax(0, ${daily + LAYOUT_FOOTER_FR}fr)`;
+      } else {
+        rows +=
+          ` minmax(0, ${daily}fr)` +
+          ` minmax(0, ${LAYOUT_FOOTER_FR}fr)`;
+      }
+
+      dashboard.style.gridTemplateRows = rows;
+    }
 
 
     // A percentage is only worth anything against a height the view
@@ -3210,7 +3309,20 @@ class HomeDisplayCard extends HTMLElement {
   inlineImageBlock() {
     return this.visibleBottomBlocks().find(
       block =>
-        block.type === "image" && block.image && block.fill !== "full"
+        block.type === "image" &&
+        block.image &&
+        block.fill !== "full" &&
+        block.fill !== "side"
+    );
+  }
+
+
+  // A side sheet draws outside the Daily Information card entirely, so
+  // it is found separately from the images that draw inside it.
+  sideImageBlock() {
+    return this.visibleBottomBlocks().find(
+      block =>
+        block.type === "image" && block.image && block.fill === "side"
     );
   }
 
@@ -3225,11 +3337,14 @@ class HomeDisplayCard extends HTMLElement {
     const middle = this.shadowRoot?.querySelector(".middle");
     const panel = this.shadowRoot?.getElementById("imagePanel");
     const dailyCard = this.shadowRoot?.querySelector(".daily-card");
+    const sideCard = this.shadowRoot?.getElementById("sideCard");
+    const sideImg = this.shadowRoot?.getElementById("sideImage");
 
 
     if (
       !grid || !image || !takeover || !takeoverImg ||
-      !dashboard || !middle || !panel || !dailyCard
+      !dashboard || !middle || !panel || !dailyCard ||
+      !sideCard || !sideImg
     ) {
       return;
     }
@@ -3259,8 +3374,29 @@ class HomeDisplayCard extends HTMLElement {
     dashboard.hidden = false;
 
 
+    // fill: side - the sheet takes the whole lower half beside the
+    // זמני היום strip, so the row that normally lives there goes.
+    const sideImage = this.sideImageBlock();
+
+    if (sideImage) {
+      if (sideImg.getAttribute("src") !== sideImage.image) {
+        sideImg.setAttribute("src", sideImage.image);
+      }
+
+      sideCard.hidden = false;
+      middle.hidden = true;
+      image.hidden = true;
+
+      return;
+    }
+
+    sideCard.hidden = true;
+    middle.hidden = false;
+
+
     const inlineImage = blocks.find(
-      block => block.type === "image" && block.image
+      block =>
+        block.type === "image" && block.image && block.fill !== "side"
     );
 
     const showSensors = blocks.some(block => block.type === "sensors");
@@ -4300,6 +4436,7 @@ class HomeDisplayCardEditor extends HTMLElement {
       const fillSelect = document.createElement("select");
       fillSelect.innerHTML = `
         <option value="full">Whole card (best for a dense sheet)</option>
+        <option value="side">Beside זמני היום (keeps the dashboard)</option>
         <option value="row">Full bottom row</option>
         <option value="daily">Daily Information box only</option>
       `;
@@ -4314,7 +4451,12 @@ class HomeDisplayCardEditor extends HTMLElement {
       const fillHint = document.createElement("p");
       fillHint.className = "hint";
       fillHint.textContent =
-        "Height is what limits a printed sheet, and the bottom row is short — a page of small print is only readable at 'Whole card', which hides the rest of the dashboard while it shows.";
+        "Height is what limits a printed sheet, and the bottom row is short. " +
+        "'Beside זמני היום' folds that strip into two columns and gives the " +
+        "image everything next to it — on a 951×499 screen a sheet goes from " +
+        "345×243 to 470×331, with the clock, weather and zmanim all still up. " +
+        "'Whole card' is bigger again (683×481) but hides the dashboard while " +
+        "it shows.";
       row.appendChild(fillHint);
 
       const fileInput = document.createElement("input");

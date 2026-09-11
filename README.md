@@ -248,15 +248,24 @@ bottom:
 
 `fill` decides how much room an image gets:
 
-| `fill` | Where | A 5000×3520 sheet on a 1440×505 screen |
+| `fill` | Where | A 5000×3520 sheet on a 951×499 screen |
 | --- | --- | --- |
-| `full` | The whole card, hiding the dashboard while it shows | 692×487 — 14% of original |
-| `row` | The whole bottom row; the side panel stands down | 270×190 |
-| `daily` | Inside the Daily Information box (default) | 270×190 |
+| `full` | The whole card, hiding the dashboard while it shows | 683×481 |
+| `side` | Beside a folded זמני היום strip, the whole lower half | 476×335 |
+| `row` | The whole bottom row; the side panel stands down | 345×243 |
+| `daily` | Inside the Daily Information box (default) | 345×243 |
 
-Height is the constraint, and every inner box is short, so `full` is the
-only one that makes a page of small print readable — `row` buys width
-the image cannot use. For a simple graphic the smaller fills are fine.
+Height is the constraint and every inner box is short, so `row` buys
+width the image cannot use and reads the same as `daily`.
+
+`side` is the one to reach for when the sheet has to be readable **and**
+the dashboard has to stay up. It folds זמני היום into two columns down
+the left — six tiles as 2×3 instead of a strip of six, so each tile gets
+a third of the height rather than a sliver — and gives the image
+everything beside it, from under the top row to the bottom of the card.
+The Daily Information row and the footer stand down while it shows.
+`full` is bigger still, but there is nothing else on the screen while it
+is up.
 
 Upload the image from the **Bottom Area** section of the editor; it uses
 Home Assistant's Image Upload integration, same as the bottom-right

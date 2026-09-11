@@ -304,3 +304,20 @@ proper Lovelace custom card:
 - The height is also capped at what is visible below where the card starts,
   so a view handing out a minimum taller than the screen cannot push the
   card off the bottom either.
+
+## v1.12.0
+
+- **New image size: `side`.** The sheet takes the whole lower half of the
+  card, and זמני היום folds into two columns beside it — six tiles as 2×3
+  rather than a strip of six, so each tile gets a third of the height
+  instead of a sliver. The clock, weather and status indicators are
+  untouched; the Daily Information row and the footer stand down, as they
+  already did for an in-card sheet.
+- On a 951×499 screen that takes a 5000×3520 sheet from 345×243 to
+  **476×335** — 1.85× the area — with the rest of the dashboard still up.
+  `full` is still bigger (683×481) but shows nothing else.
+- In side mode the card is two rows rather than four, so `layout.zmanim`
+  no longer divides anything — the columns do that instead. It still
+  applies to every other mode, and everything returns the moment the
+  sheet stops showing.
+- Pick it from **Size** in the editor's Bottom Area section.
