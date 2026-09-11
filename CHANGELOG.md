@@ -353,3 +353,13 @@ proper Lovelace custom card:
 - On this setup the real sheet needs no shrinking at all (every note
   still lands on one line); a deliberately wordy one, every note long
   enough to wrap twice, fits at 90% with all 18 rows intact.
+
+## v1.13.2
+
+- **A day with one zman no longer lands alone at the bottom of its
+  column.** The rows were spread to fill the column height, which reads
+  well on a full day and absurdly on a short one — a single סליחות row
+  sat at the very bottom of an otherwise empty box. Rows now start at
+  the top and read down, which is how the printed sheet reads too.
+- Caught on a three-day sheet with 1, 10 and 9 rows; the two full days
+  still fill their columns, because their content nearly does anyway.

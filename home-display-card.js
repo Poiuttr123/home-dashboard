@@ -6,7 +6,7 @@
  * default, or an uploaded image).
  */
 
-const CARD_VERSION = "1.13.1";
+const CARD_VERSION = "1.13.2";
 
 console.info(
   `%c HOME-DISPLAY-CARD %c v${CARD_VERSION} `,
@@ -1373,9 +1373,10 @@ class HomeDisplayCard extends HTMLElement {
           display: flex;
           flex-direction: column;
 
-          /* Spread the rows down the column rather than stacking them
-             at the top - a luach fills its page. */
-          justify-content: space-between;
+          /* Rows read from the top down. Spreading them to fill the
+             column looks right on a full day and absurd on a day with
+             one zman, which lands alone at the bottom of the box. */
+          justify-content: flex-start;
 
           gap: 2px;
 
