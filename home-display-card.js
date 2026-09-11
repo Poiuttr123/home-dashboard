@@ -6,7 +6,7 @@
  * default, or an uploaded image).
  */
 
-const CARD_VERSION = "1.15.0";
+const CARD_VERSION = "1.15.1";
 
 console.info(
   `%c HOME-DISPLAY-CARD %c v${CARD_VERSION} `,
@@ -1110,11 +1110,11 @@ class HomeDisplayCard extends HTMLElement {
         .special-rows {
           display: grid;
 
-          /* min-content, not 0: when other blocks share the box these
-             rows must stop shrinking at their text rather than
-             collapsing to nothing and overlapping each other. */
-          grid-template-rows:
-            repeat(3, minmax(min-content, 1fr));
+          /* Rows sized to their text and stacked from the top, not
+             spread down the box: a list reads as a list. */
+          grid-auto-rows: min-content;
+
+          align-content: start;
 
           min-height: 0;
         }
@@ -1224,6 +1224,11 @@ class HomeDisplayCard extends HTMLElement {
         .special-row {
           display: grid;
 
+          /* The row itself reads right to left, so the Hebrew name
+             lands on the right and the time on the left - the way the
+             printed luach sets it. */
+          direction: rtl;
+
           grid-template-columns:
             minmax(0,1fr)
             auto;
@@ -1287,6 +1292,13 @@ class HomeDisplayCard extends HTMLElement {
           font-weight: 750;
 
           white-space: nowrap;
+
+          /* Isolated, or "6:47 PM" comes out as "PM 6:47" in the
+             right-to-left row. */
+          direction: ltr;
+          unicode-bidi: isolate;
+
+          text-align: left;
         }
 
 

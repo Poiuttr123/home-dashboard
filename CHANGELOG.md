@@ -394,3 +394,14 @@ proper Lovelace custom card:
 - Existing configs keep working. A `special_times` block simply stops
   carrying the daf; add a `daf` block to get it back, wherever you want
   it in the stack.
+
+## v1.15.1
+
+- **Special Times rows now read right to left** — the Hebrew name on the
+  right, the time on the left, the way the printed luach sets it. Times
+  are bidi-isolated so `6:47 PM` doesn't invert inside the RTL row.
+- **The rows stack instead of spreading.** They were stretched to fill
+  the box, which put air between two or three lines and made a list not
+  read as one. They now sit one under the other from the top.
+- Same change reaches the דף היומי block and any custom `sensors` block
+  in the corner, since all three share the row styling.
