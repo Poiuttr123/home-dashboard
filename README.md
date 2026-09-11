@@ -266,6 +266,14 @@ panel. An `image` block with no image set is skipped, so a later
 If no block qualifies, the Daily Information card is dropped rather than
 left as a titled blank.
 
+While an image is showing in the card (any `fill` except `full`), two
+things stand down to give it height: the **footer** — its row is removed,
+not just emptied, so its share goes to the image — and the **Daily
+Information heading**, which labels the sensor list and names nothing
+next to a sheet. Both come back the moment the image stops showing. A
+`fill: full` image hides the dashboard outright, so it leaves them
+alone.
+
 ### `status_position`
 
 Where the indicator row goes. One of:

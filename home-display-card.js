@@ -6,7 +6,7 @@
  * default, or an uploaded image).
  */
 
-const CARD_VERSION = "1.10.3";
+const CARD_VERSION = "1.11.0";
 
 console.info(
   `%c HOME-DISPLAY-CARD %c v${CARD_VERSION} `,
@@ -1462,7 +1462,9 @@ class HomeDisplayCard extends HTMLElement {
            setting .hidden here did nothing and the sensor rows drew on
            top of an image sharing the row. */
         .daily-grid[hidden],
-        .daily-card[hidden] {
+        .daily-card[hidden],
+        .footer[hidden],
+        .daily-title[hidden] {
           display: none;
         }
 
@@ -1973,7 +1975,9 @@ class HomeDisplayCard extends HTMLElement {
 
             <section class="card daily-card">
 
-              <div class="section-title">
+              <div
+                class="section-title daily-title"
+                id="dailyTitle">
                 Daily Information
               </div>
 
@@ -2941,15 +2945,35 @@ class HomeDisplayCard extends HTMLElement {
 
     const { zmanim, bottom_crop } = this._config.layout;
 
-    const daily =
+    let daily =
       LAYOUT_DAILY_BASE + (LAYOUT_ZMANIM_BASE - zmanim);
 
 
-    dashboard.style.gridTemplateRows =
+    // A sheet in the card wants every pixel of height it can get, and
+    // the footer is not worth reading next to one - so it stands down
+    // and hands its share to the sheet.
+    const footer = this.shadowRoot?.querySelector(".footer");
+
+    const hideFooter = Boolean(this.inlineImageBlock());
+
+    if (footer) footer.hidden = hideFooter;
+
+
+    let rows =
       `minmax(0, ${LAYOUT_TOP_FR}fr)` +
-      ` minmax(0, ${zmanim}fr)` +
-      ` minmax(0, ${daily}fr)` +
-      ` minmax(0, ${LAYOUT_FOOTER_FR}fr)`;
+      ` minmax(0, ${zmanim}fr)`;
+
+    if (hideFooter) {
+      // Its track goes too, not just its contents, or the row it left
+      // behind stays as empty space.
+      rows += ` minmax(0, ${daily + LAYOUT_FOOTER_FR}fr)`;
+    } else {
+      rows +=
+        ` minmax(0, ${daily}fr)` +
+        ` minmax(0, ${LAYOUT_FOOTER_FR}fr)`;
+    }
+
+    dashboard.style.gridTemplateRows = rows;
 
 
     page.style.height = bottom_crop
@@ -3048,6 +3072,17 @@ class HomeDisplayCard extends HTMLElement {
   }
 
 
+  // The image block currently drawing inside the card, if any. A
+  // full-card image is not one of these: it hides the dashboard
+  // outright, so the rows beneath it stop mattering.
+  inlineImageBlock() {
+    return this.visibleBottomBlocks().find(
+      block =>
+        block.type === "image" && block.image && block.fill !== "full"
+    );
+  }
+
+
   applyBottom() {
 
     const grid = this.shadowRoot?.getElementById("dailyGrid");
@@ -3112,6 +3147,18 @@ class HomeDisplayCard extends HTMLElement {
     // up: a visible image takes it. Otherwise a sensors block that is
     // also passing would draw straight through the sheet.
     grid.hidden = !showSensors || Boolean(inlineImage);
+
+
+    // The heading names the sensor list. With only a sheet in the card
+    // it labels nothing and just costs the sheet height.
+    const title = this.shadowRoot?.getElementById("dailyTitle");
+
+    if (title) {
+      // Keyed off whether the grid is actually drawing, not whether a
+      // sensors block passed its conditions: a block can pass and still
+      // be outranked by the image, which is the usual case here.
+      title.hidden = grid.hidden && Boolean(inlineImage);
+    }
 
 
     // fill: row - the image spans the bottom row, so the panel beside

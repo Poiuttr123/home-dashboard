@@ -256,3 +256,14 @@ proper Lovelace custom card:
   browser's `[hidden]` rule — so setting `.hidden` did nothing. Every
   other hideable element already had its own `[hidden]` rule; these two
   were missed.
+
+## v1.11.0
+
+- **The footer stands down while a sheet is showing in the card**, and its
+  row share goes to the sheet rather than being left as an empty track.
+  The **Daily Information heading** goes too — it labels the sensor list,
+  and names nothing beside a sheet.
+- On a 951x499 screen that takes the sheet from 253x178 to 324x228, about
+  65% more area, with everything else on the dashboard untouched.
+- Both return as soon as the image stops showing. A `fill: full` image
+  hides the dashboard anyway, so it leaves the footer and heading alone.
