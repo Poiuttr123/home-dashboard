@@ -378,3 +378,19 @@ proper Lovelace custom card:
   sensor that goes quiet doesn't leave a placeholder on the wall.
 - No default, so nothing changes for anyone who doesn't set it. Pick it
   from **Weather & Date → What today is** in the editor.
+
+## v1.15.0
+
+- **דף היומי is its own top-right block now.** It used to be the third
+  row inside `special_times`, so it appeared only on the days the
+  candle-lighting and motzei rows did — which is backwards for the one
+  row that is worth reading every day. Add `- type: daf` with no
+  conditions and it is always up, while Special Times keeps coming and
+  going on Shabbos and Yom Tov.
+- No heading over it: the row already reads דף היומי, and saying it
+  twice in a box that size is noise.
+- **The `זמן ערב` row is now labelled `הדלקת נרות`** — which is what
+  that time actually is.
+- Existing configs keep working. A `special_times` block simply stops
+  carrying the daf; add a `daf` block to get it back, wherever you want
+  it in the stack.

@@ -6,7 +6,7 @@
  * default, or an uploaded image).
  */
 
-const CARD_VERSION = "1.14.0";
+const CARD_VERSION = "1.15.0";
 
 console.info(
   `%c HOME-DISPLAY-CARD %c v${CARD_VERSION} `,
@@ -197,7 +197,12 @@ const STATUS_POSITIONS = ["special", "daily_top", "daily_bottom", "footer"];
    things on different days.
    ============================================================ */
 
-const TOP_RIGHT_TYPES = ["special_times", "status", "sensors"];
+const TOP_RIGHT_TYPES = [
+  "special_times",
+  "daf",
+  "status",
+  "sensors",
+];
 
 /* ============================================================
    BOTTOM BLOCKS
@@ -2125,7 +2130,7 @@ class HomeDisplayCard extends HTMLElement {
               <div class="special-row">
 
                 <div class="special-label">
-                  <span>זמן ערב</span>
+                  <span>הדלקת נרות</span>
                   <span class="special-icon">🕯️</span>
                 </div>
 
@@ -2154,20 +2159,29 @@ class HomeDisplayCard extends HTMLElement {
               </div>
 
 
-              <div class="special-row">
-
-                <div class="special-label">
-                  <span>דף היומי</span>
-                  <span class="special-icon">📖</span>
-                </div>
-
-                <div
-                  class="special-value"
-                  id="dafTop">
-                  --
-                </div>
-
               </div>
+
+
+              <!-- The daf is its own block: it is worth reading every
+                   day, not only the days the erev/motzi rows matter. -->
+              <div
+                class="special-rows"
+                id="dafRow">
+
+                <div class="special-row">
+
+                  <div class="special-label">
+                    <span>דף היומי</span>
+                    <span class="special-icon">📖</span>
+                  </div>
+
+                  <div
+                    class="special-value"
+                    id="dafTop">
+                    --
+                  </div>
+
+                </div>
 
               </div>
 
@@ -3889,11 +3903,12 @@ class HomeDisplayCard extends HTMLElement {
     const box = this.shadowRoot?.getElementById("specialTimes");
     const holder = this.shadowRoot?.getElementById("specialBlocks");
     const rows = this.shadowRoot?.getElementById("specialRows");
+    const daf = this.shadowRoot?.getElementById("dafRow");
     const strip = this.shadowRoot?.getElementById("statusStripSpecial");
     const top = this.shadowRoot?.querySelector(".top");
 
 
-    if (!box || !holder || !rows || !strip || !top) return;
+    if (!box || !holder || !rows || !daf || !strip || !top) return;
 
 
     const blocks = this.visibleTopRightBlocks();
@@ -3939,9 +3954,11 @@ class HomeDisplayCard extends HTMLElement {
     // Parked means hidden: left visible they render on top of the
     // blocks that replaced them.
     if (rows.parentElement !== box) box.appendChild(rows);
+    if (daf.parentElement !== box) box.appendChild(daf);
     if (strip.parentElement !== box) box.appendChild(strip);
 
     rows.hidden = true;
+    daf.hidden = true;
 
     holder.innerHTML = "";
 
@@ -3969,6 +3986,11 @@ class HomeDisplayCard extends HTMLElement {
         }
         rows.hidden = false;
         wrap.appendChild(rows);
+      } else if (block.type === "daf") {
+        // No default heading: the row itself already reads דף היומי,
+        // and saying it twice in a box this small is noise.
+        daf.hidden = false;
+        wrap.appendChild(daf);
       } else if (block.type === "status") {
         wrap.appendChild(strip);
       } else {
@@ -4643,7 +4665,8 @@ class HomeDisplayCardEditor extends HTMLElement {
 
     const typeSelect = document.createElement("select");
     typeSelect.innerHTML = `
-      <option value="special_times">Special Times (erev / motzi / daf)</option>
+      <option value="special_times">Special Times (הדלקת נרות / מוצאי)</option>
+      <option value="daf">דף היומי</option>
       <option value="status">Status indicators</option>
       <option value="sensors">Custom sensors</option>
     `;

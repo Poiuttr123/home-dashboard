@@ -214,8 +214,12 @@ top_right:
 
 Block types:
 
-- `special_times` — the built-in erev / motzi / daf rows. Heading
+- `special_times` — the built-in הדלקת נרות / זמן מוצאי rows. Heading
   defaults to "Special Times"; set `title` to change it.
+- `daf` — the דף היומי row on its own. It used to sit inside
+  `special_times`, which meant it only appeared on the days the
+  candle-lighting and motzei rows mattered; as its own block it can be
+  left unconditional and read every day.
 - `status` — the indicator chips from `status`. A visible `status` block
   here overrides `status_position`.
 - `sensors` — your own name/value rows, same shape as the top-level
