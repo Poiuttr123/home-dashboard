@@ -71,6 +71,15 @@ image_panel:
 Maps each part of the card to a Home Assistant entity. All keys are optional;
 unspecified keys fall back to the defaults shown above.
 
+**`today`** is the exception: it has no default and draws nothing until you
+set it. Point it at an entity saying what today is — `sensor.yidcal_holiday`
+gives `ערב ראש השנה`, `ראש השנה א׳`, `יום כיפור` and so on — and it appears
+as a gold line under the Jewish date. On an ordinary day that sensor is an
+empty string, and the line is then not drawn at all rather than left blank
+taking the space. `unknown`, `unavailable`, `none` and a bare dash are
+treated the same way, so a sensor that goes quiet doesn't put a placeholder
+on the wall.
+
 ### `forecast`
 
 Controls the two forecast strips on the weather card: a **daily** one under

@@ -6,7 +6,7 @@
  * default, or an uploaded image).
  */
 
-const CARD_VERSION = "1.13.2";
+const CARD_VERSION = "1.14.0";
 
 console.info(
   `%c HOME-DISPLAY-CARD %c v${CARD_VERSION} `,
@@ -17,6 +17,9 @@ console.info(
 const DEFAULT_ENTITIES = {
   weather: "weather.home",
   jewish_date: "sensor.yidcal_full_display",
+  // What today is - erev, yom tov, a fast, a special Shabbos. Empty on
+  // an ordinary day, and then the line is simply not drawn.
+  today: "",
   daf_yomi: "sensor.yidcal_daf_hayomi",
   alos: "sensor.yidcal_alos",
   netz: "sensor.yidcal_netz",
@@ -101,6 +104,17 @@ export const ENTITY_SECTIONS = [
     fields: [
       { key: "weather", label: "Weather entity", filterDomain: "weather" },
       { key: "jewish_date", label: "Jewish date sensor", filterDomain: "sensor" },
+      {
+        key: "today",
+        label: "What today is (optional)",
+        filterDomain: "sensor",
+        hint:
+          "A line under the date for erev, yom tov, a fast, a special " +
+          "Shabbos — sensor.yidcal_holiday reads \u05e2\u05e8\u05d1 " +
+          "\u05e8\u05d0\u05e9 \u05d4\u05e9\u05e0\u05d4 today. It " +
+          "goes blank on an ordinary day, and then the line is not drawn " +
+          "at all. Leave empty to never show it.",
+      },
       { key: "daf_yomi", label: "Daf Yomi sensor", filterDomain: "sensor" },
     ],
   },
@@ -780,6 +794,33 @@ class HomeDisplayCard extends HTMLElement {
           max-height: 2.8em;
 
           overflow: hidden;
+        }
+
+
+        /* What today is, when it is anything. Set apart from the date
+           above it, because it is the line worth noticing. */
+        #todayLabel {
+          margin-top: 5px;
+
+          font-size:
+            clamp(12px, min(1.45vw, 2.2vh), 20px);
+          font-weight: 800;
+
+          color: #ffd98a;
+
+          direction: rtl;
+          unicode-bidi: plaintext;
+          text-align: left;
+
+          line-height: 1.3;
+
+          max-height: 2.6em;
+
+          overflow: hidden;
+        }
+
+        #todayLabel[hidden] {
+          display: none;
         }
 
 
@@ -2005,6 +2046,8 @@ class HomeDisplayCard extends HTMLElement {
 
               <div id="jewishDate"></div>
 
+              <div id="todayLabel" hidden></div>
+
             </section>
 
 
@@ -2457,6 +2500,30 @@ class HomeDisplayCard extends HTMLElement {
       "jewishDate",
       this.getState(entities.jewish_date, "")
     );
+
+
+    /* ==========================================================
+       WHAT TODAY IS
+
+       Blank on an ordinary day - YidCal returns an empty string
+       rather than a placeholder - so the line goes entirely rather
+       than sitting there empty and taking the space.
+       ========================================================== */
+
+    const todayLabel = this.shadowRoot?.getElementById("todayLabel");
+
+    if (todayLabel) {
+      const today = entities.today
+        ? this.getState(entities.today, "").trim()
+        : "";
+
+      const meaningful =
+        today && !["-", "--", "unknown", "unavailable", "none"]
+          .includes(today.toLowerCase());
+
+      todayLabel.textContent = meaningful ? today : "";
+      todayLabel.hidden = !meaningful;
+    }
 
 
     /* ==========================================================
@@ -4501,6 +4568,13 @@ class HomeDisplayCardEditor extends HTMLElement {
       });
 
       wrap.appendChild(fieldWrap);
+
+      if (field.hint) {
+        const hint = document.createElement("p");
+        hint.className = "hint";
+        hint.textContent = field.hint;
+        wrap.appendChild(hint);
+      }
     }
 
     return wrap;

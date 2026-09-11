@@ -363,3 +363,18 @@ proper Lovelace custom card:
   the top and read down, which is how the printed sheet reads too.
 - Caught on a three-day sheet with 1, 10 and 9 rows; the two full days
   still fill their columns, because their content nearly does anyway.
+
+## v1.14.0
+
+- **New optional entity: `entities.today`** — a line under the Jewish date
+  saying what today is. `sensor.yidcal_holiday` reads `ערב ראש השנה`,
+  `ראש השנה א׳`, `יום כיפור` and so on.
+- Drawn in gold, set apart from the date above it, because it is the line
+  worth noticing.
+- **The line disappears entirely on an ordinary day.** YidCal returns an
+  empty string rather than a placeholder, so an always-present line would
+  be blank most of the year and cost the space for nothing. `unknown`,
+  `unavailable`, `none` and a bare dash are treated as nothing too, so a
+  sensor that goes quiet doesn't leave a placeholder on the wall.
+- No default, so nothing changes for anyone who doesn't set it. Pick it
+  from **Weather & Date → What today is** in the editor.
