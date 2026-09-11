@@ -6,7 +6,7 @@
  * default, or an uploaded image).
  */
 
-const CARD_VERSION = "1.13.0";
+const CARD_VERSION = "1.13.1";
 
 console.info(
   `%c HOME-DISPLAY-CARD %c v${CARD_VERSION} `,
@@ -202,6 +202,13 @@ const BOTTOM_TYPES = ["sensors", "image", "schedule"];
 const DEFAULT_SCHEDULE_ENTITY = "sensor.shul_zmanim";
 
 const MAX_SCHEDULE_DAYS = 4;
+
+// How far the schedule may shrink itself to get a long sheet to fit.
+// Past this it would be unreadable from across a room, which is worse
+// than the sheet not fitting.
+const SCHEDULE_MIN_SCALE = 0.7;
+
+const SCHEDULE_SCALE_STEP = 0.05;
 
 // A day label or zman name with Hebrew in it means the whole block
 // reads right to left, the way the printed luach does.
@@ -1336,6 +1343,10 @@ class HomeDisplayCard extends HTMLElement {
            ====================================================== */
 
         .schedule {
+          /* Everything inside scales off this, so the block can be
+             shrunk to fit as one piece. */
+          --schedule-scale: 1;
+
           /* The same row the sensor grid takes. Left to the implicit
              grid it lands in an auto row and sits short of the card's
              bottom edge with the space going nowhere. */
@@ -1382,7 +1393,8 @@ class HomeDisplayCard extends HTMLElement {
         .schedule-day-label {
           color: #6fc0ef;
 
-          font-size: clamp(9px, min(1vw, 1.7vh), 13px);
+          font-size:
+            calc(clamp(9px, min(1vw, 1.7vh), 13px) * var(--schedule-scale));
           font-weight: 800;
           letter-spacing: .3px;
 
@@ -1409,7 +1421,8 @@ class HomeDisplayCard extends HTMLElement {
         }
 
         .schedule-name {
-          font-size: clamp(10px, min(1.15vw, 1.9vh), 15px);
+          font-size:
+            calc(clamp(10px, min(1.15vw, 1.9vh), 15px) * var(--schedule-scale));
           font-weight: 700;
 
           white-space: nowrap;
@@ -1430,7 +1443,8 @@ class HomeDisplayCard extends HTMLElement {
         .schedule-time {
           color: #ffd98a;
 
-          font-size: clamp(10px, min(1.15vw, 1.9vh), 15px);
+          font-size:
+            calc(clamp(10px, min(1.15vw, 1.9vh), 15px) * var(--schedule-scale));
           font-weight: 800;
 
           white-space: nowrap;
@@ -1445,8 +1459,9 @@ class HomeDisplayCard extends HTMLElement {
         .schedule-note {
           color: #9fbdd2;
 
-          font-size: clamp(7.5px, min(.85vw, 1.4vh), 11px);
-          line-height: 1.25;
+          font-size:
+            calc(clamp(7.5px, min(.85vw, 1.4vh), 11px) * var(--schedule-scale));
+          line-height: 1.3;
 
           padding-inline-start: 2px;
 
@@ -1454,10 +1469,6 @@ class HomeDisplayCard extends HTMLElement {
              English freely, sometimes inside one note. */
           unicode-bidi: plaintext;
 
-          overflow: hidden;
-          display: -webkit-box;
-          -webkit-line-clamp: 2;
-          -webkit-box-orient: vertical;
         }
 
         /* ======================================================
@@ -3541,7 +3552,18 @@ class HomeDisplayCard extends HTMLElement {
 
     host.hidden = false;
 
-    if (host.dataset.signature === signature) return true;
+    if (host.dataset.signature === signature) {
+      // Same sheet, but a box that changed size needs fitting again -
+      // the window moved, not the data.
+      const box = `${host.clientWidth}x${host.clientHeight}`;
+
+      if (host.dataset.fitBox !== box) {
+        host.dataset.fitBox = box;
+        this.fitSchedule(host);
+      }
+
+      return true;
+    }
 
     host.dataset.signature = signature;
     host.textContent = "";
@@ -3604,7 +3626,47 @@ class HomeDisplayCard extends HTMLElement {
       host.appendChild(column);
     }
 
+
+    this.fitSchedule(host);
+
+    host.dataset.fitBox = `${host.clientWidth}x${host.clientHeight}`;
+
     return true;
+  }
+
+
+  /* ==========================================================
+     FITTING
+
+     Notes wrap rather than being cut off, so a wordy sheet is
+     taller than a terse one and nothing about the box changes to
+     match. Shrink the whole block until it fits: a smaller sheet
+     you can still read beats a full-size one with its last rows
+     sliced off the bottom.
+     ========================================================== */
+
+  fitSchedule(host) {
+
+    const overflows = () =>
+      [...host.children].some(
+        column => column.scrollHeight > column.clientHeight + 1
+      );
+
+
+    host.style.setProperty("--schedule-scale", "1");
+
+    if (!overflows()) return;
+
+
+    let scale = 1;
+
+    while (scale > SCHEDULE_MIN_SCALE) {
+      scale = Math.round((scale - SCHEDULE_SCALE_STEP) * 100) / 100;
+
+      host.style.setProperty("--schedule-scale", String(scale));
+
+      if (!overflows()) return;
+    }
   }
 
 

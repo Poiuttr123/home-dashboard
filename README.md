@@ -276,6 +276,13 @@ left-to-right when it isn't, decided per sheet. Times are isolated so
 own direction line by line, and a row whose time cell is empty (Google
 hands those over as `0`) shows no time rather than a bare zero.
 
+Notes **wrap in full** rather than being cut off at a line count, so a
+wordy sheet is taller than a terse one — and nothing about the box
+changes to match. So the block measures itself and shrinks as one piece
+until it fits, down to 70% before it gives up: a smaller sheet you can
+still read from across the room beats a full-size one with its last rows
+sliced off the bottom. A sheet that already fits is never shrunk.
+
 Up to four days are drawn. The **Daily Information heading** and the
 **footer** stand down while it shows — the day headings already label
 the box, and 18 lines of small print want the height. An `image` block

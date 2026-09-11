@@ -341,3 +341,15 @@ proper Lovelace custom card:
   as they already do for a sheet image. An `image` block outranks it.
 - Rows that expire through the sheet's `remove by` column simply aren't
   in the data, so nothing here has to know about them.
+
+## v1.13.1
+
+- **Schedule notes wrap in full** instead of being cut at two lines.
+- Which means a wordy sheet is taller than a terse one while the box
+  stays the same size, so the block now measures itself and shrinks as
+  one piece until it fits — down to 70%, past which it stops, since
+  unreadable is worse than not fitting. A sheet that already fits is
+  never shrunk. Re-fits when the sheet changes or the window resizes.
+- On this setup the real sheet needs no shrinking at all (every note
+  still lands on one line); a deliberately wordy one, every note long
+  enough to wrap twice, fits at 90% with all 18 rows intact.
