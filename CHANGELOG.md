@@ -286,3 +286,21 @@ proper Lovelace custom card:
 - A phone in portrait is left alone: it is meant to stack up and scroll,
   and squeezing the whole dashboard into one screen there would make it
   unreadable.
+
+## v1.11.2
+
+- v1.11.1 measured the right thing and drew the wrong conclusion from it.
+  It collapsed the page, read the host's height, and treated any non-zero
+  answer as "the view gave the card a height, leave it alone". Home
+  Assistant's view gives the card a **minimum** of the full height, not a
+  height: collapsed it reads as the window, and then it grows with the
+  content. So the card stood down on exactly the layout it was written to
+  fix, and the DW tile stayed at 1172px inside a 499px window.
+- The collapsed reading is now used as the height rather than as a reason
+  to do nothing — it answers the only question that matters, which is how
+  much room the view gives the card when nothing inside is pushing. A
+  height from the view is used as-is; a card the view gives nothing at all
+  still falls back to measuring the window.
+- The height is also capped at what is visible below where the card starts,
+  so a view handing out a minimum taller than the screen cannot push the
+  card off the bottom either.

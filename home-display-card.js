@@ -6,7 +6,7 @@
  * default, or an uploaded image).
  */
 
-const CARD_VERSION = "1.11.1";
+const CARD_VERSION = "1.11.2";
 
 console.info(
   `%c HOME-DISPLAY-CARD %c v${CARD_VERSION} `,
@@ -3025,10 +3025,21 @@ class HomeDisplayCard extends HTMLElement {
      the daily box drags the dashboard off the bottom of the
      screen.
 
-     So when the view gives us nothing, measure the window and use
-     that. Only in landscape: a phone in portrait is taller than it
-     is wide, the card stacks up and scrolls there, and that reads
-     well - squeezing it into one screen would not.
+     Collapsing the page and measuring the host answers the only
+     question that matters: how much room does the view give this
+     card when nothing inside is pushing? A view that hands out a
+     real height reports it. HA's own reports it too - it gives the
+     card a MINIMUM of the full height, which reads the same while
+     the page is collapsed and then grows with the content, so a
+     non-zero reading is not proof the height is fixed. Either way
+     the collapsed figure is the room available, and the card should
+     lay itself out inside it.
+
+     A card the view gives nothing at all collapses to nothing, and
+     then the window is the only thing left to measure. Only in
+     landscape: a phone in portrait is taller than it is wide, the
+     card stacks up and scrolls there, and that reads well -
+     squeezing it into one screen would not.
      ========================================================== */
 
   // Returns the height to pin the page to, or 0 to leave the CSS
@@ -3056,10 +3067,18 @@ class HomeDisplayCard extends HTMLElement {
     if (!page) return 0;
 
 
-    // Collapse the page and see whether the host still has a height.
-    // If it does, the view gave it one and we should not second-guess
-    // it. If it goes to nothing, the host was only ever as tall as
-    // what is inside it.
+    // A phone in portrait is left to stack up and scroll.
+    if (window.innerWidth <= window.innerHeight) {
+      this._pageHeightKey = key;
+      this._pageHeightAt = now;
+      this._pageHeight = 0;
+
+      return 0;
+    }
+
+
+    // With nothing inside pushing, the host is exactly as tall as the
+    // view is willing to make it.
     const previous = page.style.height;
 
     page.style.height = "0px";
@@ -3069,18 +3088,22 @@ class HomeDisplayCard extends HTMLElement {
     page.style.height = previous;
 
 
-    let height = 0;
+    // What is visible below where the card starts. The view can hand
+    // out a minimum taller than the screen, and a card laid out into
+    // that still runs off the bottom.
+    const visible =
+      window.innerHeight - Math.max(0, given.top);
 
-    if (
-      given.height < MIN_PAGE_HEIGHT &&
-      window.innerWidth > window.innerHeight
-    ) {
-      height =
-        Math.max(
-          MIN_PAGE_HEIGHT,
-          window.innerHeight - Math.max(0, given.top)
-        );
+    let height =
+      given.height >= MIN_PAGE_HEIGHT
+        ? given.height
+        : visible;
+
+    if (visible >= MIN_PAGE_HEIGHT) {
+      height = Math.min(height, visible);
     }
+
+    height = Math.max(MIN_PAGE_HEIGHT, height);
 
 
     this._pageHeightKey = key;
