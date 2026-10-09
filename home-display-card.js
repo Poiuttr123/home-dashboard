@@ -6,7 +6,7 @@
  * default, or an uploaded image).
  */
 
-const CARD_VERSION = "1.15.1";
+const CARD_VERSION = "1.16.0";
 
 console.info(
   `%c HOME-DISPLAY-CARD %c v${CARD_VERSION} `,
@@ -748,46 +748,126 @@ class HomeDisplayCard extends HTMLElement {
           display: flex;
           flex-direction: column;
           justify-content: center;
+
+          min-height: 0;
+          overflow: hidden;
+
+          /* The clock sizes itself against this box, not the window:
+             the column keeps roughly the same width whatever the
+             screen does, so vw says nothing useful about it. */
+          container-type: inline-size;
+          container-name: clockcard;
         }
 
         .clock-line {
           display: flex;
-          align-items: baseline;
-          gap: 7px;
+          align-items: stretch;
+          gap: clamp(6px, .9vw, 13px);
           white-space: nowrap;
         }
 
-        #clock {
-          font-size:
-            clamp(38px, min(6.1vw, 9vh), 78px);
+        /* The numerals are the one thing on this card readable from
+           across the room, so they get every pixel the card can spare.
+           On the video wall it is height that binds; the width term
+           only matters on a tall window, where it stops the digits
+           running past the edge of their own column.
 
-          line-height: .95;
-          font-weight: 300;
-          letter-spacing: -3px;
+           The first rule is the fallback for a browser without
+           container queries, capped low enough to stay inside the
+           column on any screen. The second wins wherever cqw is
+           understood, and lets a tall screen go further. */
+        #clock {
+          display: flex;
+          align-items: baseline;
+
+          font-size:
+            clamp(40px, 12.4vh, 70px);
+
+          font-size:
+            clamp(40px, min(27cqw, 12.4vh), 108px);
+
+          line-height: .86;
+          font-weight: 250;
+
+          /* In em, so the tracking stays proportional as the clock
+             grows, instead of crushing the digits at small sizes. */
+          letter-spacing: -.035em;
+
+          /* Fixed-width digits: without these the line twitches
+             sideways every second as the glyph widths change. */
+          font-variant-numeric: tabular-nums;
+          font-feature-settings: "tnum" 1;
+
+          color: #f4fafe;
+        }
+
+        .clock-colon {
+          padding: 0 .03em;
+
+          font-weight: 200;
+          letter-spacing: 0;
+
+          color: #6d93ab;
+        }
+
+        /* AM/PM over the seconds, stacked in the gap beside the
+           numerals. Two short lines cost no height at all there,
+           where one line underneath would have cost the clock
+           the room it just gained. */
+        .clock-meta {
+          display: flex;
+          flex-direction: column;
+          justify-content: flex-start;
+          align-items: flex-start;
+
+          gap: .1em;
+
+          /* Lines the AM/PM cap up with the top of the digits, rather
+             than letting the pair drift down the side of them. */
+          padding-top: .16em;
+        }
+
+        #dayPeriod {
+          font-size:
+            clamp(11px, min(2.1vw, 2.9vh), 20px);
+
+          font-weight: 700;
+          letter-spacing: .13em;
+          text-transform: uppercase;
+
+          color: #9ec6de;
         }
 
         #seconds {
           font-size:
-            clamp(13px, min(1.7vw, 2.8vh), 23px);
+            clamp(11px, min(2vw, 2.7vh), 19px);
 
-          color: #67889c;
-          font-weight: 400;
+          font-weight: 500;
+          letter-spacing: .08em;
+
+          font-variant-numeric: tabular-nums;
+          font-feature-settings: "tnum" 1;
+
+          color: #6f93a9;
         }
 
         #date {
-          margin-top: clamp(8px, 1.5vh, 14px);
+          margin-top: clamp(5px, 1.1vh, 13px);
 
           font-size:
-            clamp(12px, min(1.35vw, 2vh), 18px);
+            clamp(12px, min(1.5vw, 2.6vh), 19px);
+
+          font-weight: 500;
+          letter-spacing: .015em;
 
           color: #86bad8;
         }
 
         #jewishDate {
-          margin-top: 6px;
+          margin-top: clamp(2px, .55vh, 7px);
 
           font-size:
-            clamp(12px, min(1.4vw, 2.1vh), 19px);
+            clamp(12px, min(1.5vw, 2.7vh), 20px);
 
           color: #d1e2ec;
 
@@ -2053,8 +2133,16 @@ class HomeDisplayCard extends HTMLElement {
             <section class="card clock-card">
 
               <div class="clock-line">
-                <div id="clock">--:--</div>
-                <div id="seconds">--</div>
+
+                <div id="clock"><span id="clockHour">--</span><span
+                  class="clock-colon">:</span><span
+                  id="clockMinute">--</span></div>
+
+                <div class="clock-meta">
+                  <div id="dayPeriod">--</div>
+                  <div id="seconds">--</div>
+                </div>
+
               </div>
 
               <div id="date">
@@ -2466,16 +2554,26 @@ class HomeDisplayCard extends HTMLElement {
       }
 
       this.setText(
-        "clock",
-        `${hour}:${minute}`
+        "clockHour",
+        hour
+      );
+
+      this.setText(
+        "clockMinute",
+        minute
+      );
+
+      this.setText(
+        "dayPeriod",
+        dayPeriod
       );
 
       this.setText(
         "seconds",
-        `${now
+        now
           .getSeconds()
           .toString()
-          .padStart(2, "0")} ${dayPeriod}`
+          .padStart(2, "0")
       );
 
       this.setText(

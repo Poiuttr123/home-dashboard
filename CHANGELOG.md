@@ -405,3 +405,24 @@ proper Lovelace custom card:
   read as one. They now sit one under the other from the top.
 - Same change reaches the דף היומי block and any custom `sensors` block
   in the corner, since all three share the row styling.
+
+## v1.16.0
+
+- **The clock is much bigger in the same box.** On the video wall the
+  numerals go from ~45px to ~62px — about twice the area — without the
+  card growing or anything under it moving.
+- The room came from the seconds. `9:41 PM` used to sit on one line
+  beside the time, so the whole block was as wide as it was short. The
+  `PM` and the seconds now stack in the gap to the right of the
+  numerals, where two short lines cost no height at all, and the height
+  they gave back went to the digits.
+- **The clock sizes itself against its own column, not the window.**
+  That column stays about the same width whatever the screen does, so
+  `vw` was telling the clock about space it never had — on a 1080p
+  screen it sized the digits wider than the card. It now measures the
+  card itself (`cqw`), with a capped `vh` fallback for a browser without
+  container queries.
+- Typographic cleanup: fixed-width digits, so the line no longer
+  twitches sideways every second; tracking in `em` so it stays
+  proportional as the clock grows instead of crushing the digits at
+  small sizes; a dimmed colon; and `AM`/`PM` set in spaced small caps.
